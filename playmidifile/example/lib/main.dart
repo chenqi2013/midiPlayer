@@ -199,242 +199,250 @@ class _MidiPlayerDemoState extends State<MidiPlayerDemo> {
       ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // 文件选择区域
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      '文件选择',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // 文件选择区域
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        '文件选择',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: ElevatedButton.icon(
-                            onPressed: _loadFromPath,
-                            icon: const Icon(Icons.folder_open),
-                            label: const Text('加载文件路径'),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: ElevatedButton.icon(
-                            onPressed: _loadAssetFile,
-                            icon: const Icon(Icons.library_music),
-                            label: const Text('加载示例文件'),
-                          ),
-                        ),
-                      ],
-                    ),
-                    if (_currentFile != null) ...[
                       const SizedBox(height: 12),
-                      Text('当前文件: $_currentFile'),
-                    ],
-                    const SizedBox(height: 12),
-                    const Text(
-                      '提示：要选择文件，请添加file_picker依赖',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey,
-                        fontStyle: FontStyle.italic,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 16),
-
-            // 播放控制区域
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      '播放控制',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-
-                    // 播放状态
-                    Row(
-                      children: [
-                        const Text('状态: '),
-                        Text(
-                          _getStateText(_playerState),
-                          style: TextStyle(
-                            color: _getStateColor(_playerState),
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-
-                    const SizedBox(height: 12),
-
-                    // 进度条
-                    if (_playbackInfo != null) ...[
                       Row(
                         children: [
-                          Text(
-                            _formatDuration(_playbackInfo!.currentPositionMs),
-                          ),
                           Expanded(
-                            child: Slider(
-                              value: _playbackInfo!.progress,
-                              onChanged: _currentFile != null ? _seekTo : null,
-                              min: 0.0,
-                              max: 1.0,
+                            child: ElevatedButton.icon(
+                              onPressed: _loadFromPath,
+                              icon: const Icon(Icons.folder_open),
+                              label: const Text('加载文件路径'),
                             ),
                           ),
-                          Text(_formatDuration(_playbackInfo!.durationMs)),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              onPressed: _loadAssetFile,
+                              icon: const Icon(Icons.library_music),
+                              label: const Text('加载示例文件'),
+                            ),
+                          ),
                         ],
                       ),
+                      if (_currentFile != null) ...[
+                        const SizedBox(height: 12),
+                        Text('当前文件: $_currentFile'),
+                      ],
                       const SizedBox(height: 12),
+                      const Text(
+                        '提示：要选择文件，请添加file_picker依赖',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
                     ],
-
-                    // 控制按钮
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        IconButton.filled(
-                          onPressed: _currentFile != null ? _play : null,
-                          icon: const Icon(Icons.play_arrow),
-                          tooltip: '播放',
-                        ),
-                        IconButton.filled(
-                          onPressed: _currentFile != null ? _pause : null,
-                          icon: const Icon(Icons.pause),
-                          tooltip: '暂停',
-                        ),
-                        IconButton.filled(
-                          onPressed: _currentFile != null ? _stop : null,
-                          icon: const Icon(Icons.stop),
-                          tooltip: '停止',
-                        ),
-                      ],
-                    ),
-                  ],
+                  ),
                 ),
               ),
-            ),
 
-            const SizedBox(height: 16),
+              const SizedBox(height: 16),
 
-            // 音量和速度控制
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      '音效控制',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
+              // 播放控制区域
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        '播放控制',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 12),
+                      const SizedBox(height: 12),
 
-                    // 音量控制
-                    Row(
-                      children: [
-                        const Icon(Icons.volume_down),
-                        Expanded(
-                          child: Slider(
-                            value: _volume,
-                            onChanged: _currentFile != null ? _setVolume : null,
-                            min: 0.0,
-                            max: 1.0,
-                            divisions: 10,
-                            label: '${(_volume * 100).round()}%',
+                      // 播放状态
+                      Row(
+                        children: [
+                          const Text('状态: '),
+                          Text(
+                            _getStateText(_playerState),
+                            style: TextStyle(
+                              color: _getStateColor(_playerState),
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
-                        ),
-                        const Icon(Icons.volume_up),
-                      ],
-                    ),
+                        ],
+                      ),
 
-                    // 播放速度控制
-                    Row(
-                      children: [
-                        const Text('0.5x'),
-                        Expanded(
-                          child: Slider(
-                            value: _speed,
-                            onChanged: _currentFile != null ? _setSpeed : null,
-                            min: 0.5,
-                            max: 2.0,
-                            divisions: 15,
-                            label: '${_speed}x',
+                      const SizedBox(height: 12),
+
+                      // 进度条
+                      if (_playbackInfo != null) ...[
+                        Row(
+                          children: [
+                            Text(
+                              _formatDuration(_playbackInfo!.currentPositionMs),
+                            ),
+                            Expanded(
+                              child: Slider(
+                                value: _playbackInfo!.progress,
+                                onChanged: _currentFile != null
+                                    ? _seekTo
+                                    : null,
+                                min: 0.0,
+                                max: 1.0,
+                              ),
+                            ),
+                            Text(_formatDuration(_playbackInfo!.durationMs)),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+
+                      // 控制按钮
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          IconButton.filled(
+                            onPressed: _currentFile != null ? _play : null,
+                            icon: const Icon(Icons.play_arrow),
+                            tooltip: '播放',
                           ),
+                          IconButton.filled(
+                            onPressed: _currentFile != null ? _pause : null,
+                            icon: const Icon(Icons.pause),
+                            tooltip: '暂停',
+                          ),
+                          IconButton.filled(
+                            onPressed: _currentFile != null ? _stop : null,
+                            icon: const Icon(Icons.stop),
+                            tooltip: '停止',
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 16),
+
+              // 音量和速度控制
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        '音效控制',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
                         ),
-                        const Text('2.0x'),
-                      ],
-                    ),
-                  ],
+                      ),
+                      const SizedBox(height: 12),
+
+                      // 音量控制
+                      Row(
+                        children: [
+                          const Icon(Icons.volume_down),
+                          Expanded(
+                            child: Slider(
+                              value: _volume,
+                              onChanged: _currentFile != null
+                                  ? _setVolume
+                                  : null,
+                              min: 0.0,
+                              max: 1.0,
+                              divisions: 10,
+                              label: '${(_volume * 100).round()}%',
+                            ),
+                          ),
+                          const Icon(Icons.volume_up),
+                        ],
+                      ),
+
+                      // 播放速度控制
+                      Row(
+                        children: [
+                          const Text('0.5x'),
+                          Expanded(
+                            child: Slider(
+                              value: _speed,
+                              onChanged: _currentFile != null
+                                  ? _setSpeed
+                                  : null,
+                              min: 0.5,
+                              max: 2.0,
+                              divisions: 15,
+                              label: '${_speed}x',
+                            ),
+                          ),
+                          const Text('2.0x'),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
 
-            const Spacer(),
+              const SizedBox(height: 32),
 
-            // API 使用说明
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'API 使用示例',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
+              // API 使用说明
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'API 使用示例',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      '// 初始化播放器\n'
-                      'await PlayMidifile.instance.initialize();\n\n'
-                      '// 加载文件\n'
-                      'await PlayMidifile.instance.loadFile(filePath);\n'
-                      'await PlayMidifile.instance.loadAsset(assetPath);\n\n'
-                      '// 播放控制\n'
-                      'await PlayMidifile.instance.play();\n'
-                      'await PlayMidifile.instance.pause();\n'
-                      'await PlayMidifile.instance.stop();\n'
-                      'await PlayMidifile.instance.seekTo(positionMs);\n\n'
-                      '// 设置参数\n'
-                      'await PlayMidifile.instance.setVolume(0.8);\n'
-                      'await PlayMidifile.instance.setSpeed(1.5);',
-                      style: TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 12,
-                        color: Colors.black87,
+                      const SizedBox(height: 8),
+                      const Text(
+                        '// 初始化播放器\n'
+                        'await PlayMidifile.instance.initialize();\n\n'
+                        '// 加载文件\n'
+                        'await PlayMidifile.instance.loadFile(filePath);\n'
+                        'await PlayMidifile.instance.loadAsset(assetPath);\n\n'
+                        '// 播放控制\n'
+                        'await PlayMidifile.instance.play();\n'
+                        'await PlayMidifile.instance.pause();\n'
+                        'await PlayMidifile.instance.stop();\n'
+                        'await PlayMidifile.instance.seekTo(positionMs);\n\n'
+                        '// 设置参数\n'
+                        'await PlayMidifile.instance.setVolume(0.8);\n'
+                        'await PlayMidifile.instance.setSpeed(1.5);',
+                        style: TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 12,
+                          color: Colors.black87,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
