@@ -1,0 +1,30 @@
+name: playmidifile_example
+description: 演示playmidifile插件使用的示例应用程序
+
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.8.1
+  flutter: ">=3.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  playmidifile:
+    path: ../
+  file_picker: ^8.0.0+1
+  cupertino_icons: ^1.0.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+  
+  # 示例MIDI文件
+  assets:
+    - assets/demo.mid 

@@ -1,0 +1,32 @@
+name: playmidifile
+description: "一个跨平台的MIDI文件播放器插件，支持Android、iOS、Windows、macOS"
+version: 0.0.1
+homepage: https://github.com/example/playmidifile
+
+environment:
+  sdk: ^3.8.1
+  flutter: ">=3.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  plugin_platform_interface: ^2.1.7
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: com.example.playmidifile
+        pluginClass: PlayMidifilePlugin
+      ios:
+        pluginClass: PlayMidifilePlugin
+      windows:
+        pluginClass: PlayMidifilePluginCApi
+        fileName: play_midifile_plugin_c_api.cpp
+      macos:
+        pluginClass: PlayMidifilePlugin
