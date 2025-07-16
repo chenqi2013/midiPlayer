@@ -428,19 +428,34 @@ public class PlayMidifilePlugin: NSObject, FlutterPlugin {
     }
     
     private func seekTo(positionMs: Int, result: @escaping FlutterResult) {
-        guard let player = musicPlayer, musicSequence != nil else {
+        guard let player = musicPlayer, let sequence = musicSequence else {
             result(FlutterError(code: "NO_FILE", message: "请先加载文件", details: nil))
             return
         }
         
         let timeInSeconds = Double(positionMs) / 1000.0
-        let status = MusicPlayerSetTime(player, timeInSeconds)
-        if status == noErr {
-            currentPosition = timeInSeconds
-            updateProgress()
-            result(nil)
+        
+        // 将秒转换为MusicTimeStamp（beats）
+        var timeInBeats: MusicTimeStamp = 0
+        let conversionStatus = MusicSequenceGetBeatsForSeconds(sequence, timeInSeconds, &timeInBeats)
+        if conversionStatus == noErr {
+            let status = MusicPlayerSetTime(player, timeInBeats)
+            if status == noErr {
+                currentPosition = timeInSeconds
+                result(nil)
+            } else {
+                result(FlutterError(code: "SEEK_ERROR", message: "跳转失败: \(status)", details: nil))
+            }
         } else {
-            result(FlutterError(code: "SEEK_ERROR", message: "跳转失败: \(status)", details: nil))
+            // 如果转换失败，使用默认的每分钟120拍计算
+            let timeInBeats = timeInSeconds / 0.5  // 假设120 BPM
+            let status = MusicPlayerSetTime(player, timeInBeats)
+            if status == noErr {
+                currentPosition = timeInSeconds
+                result(nil)
+            } else {
+                result(FlutterError(code: "SEEK_ERROR", message: "跳转失败: \(status)", details: nil))
+            }
         }
     }
     
@@ -465,7 +480,7 @@ public class PlayMidifilePlugin: NSObject, FlutterPlugin {
     }
     
     private func getCurrentInfo(result: @escaping FlutterResult) {
-        guard let player = musicPlayer, musicSequence != nil else {
+        guard let player = musicPlayer, let sequence = musicSequence else {
             result(nil)
             return
         }
@@ -473,7 +488,15 @@ public class PlayMidifilePlugin: NSObject, FlutterPlugin {
         var time: MusicTimeStamp = 0
         let status = MusicPlayerGetTime(player, &time)
         if status == noErr {
-            currentPosition = time
+            // 将MusicTimeStamp（beats）转换为秒
+            var timeInSeconds: Float64 = 0
+            let conversionStatus = MusicSequenceGetSecondsForBeats(sequence, time, &timeInSeconds)
+            if conversionStatus == noErr {
+                currentPosition = TimeInterval(timeInSeconds)
+            } else {
+                // 如果转换失败，使用默认的每分钟120拍计算
+                currentPosition = TimeInterval(time * 0.5)
+            }
         }
         
         let progress = duration > 0 ? currentPosition / duration : 0.0
@@ -534,7 +557,16 @@ public class PlayMidifilePlugin: NSObject, FlutterPlugin {
             }
         }
         
-        duration = maxLength
+        // 将MusicTimeStamp（beats）转换为秒
+        var durationInSeconds: Float64 = 0
+        let conversionStatus = MusicSequenceGetSecondsForBeats(sequence, maxLength, &durationInSeconds)
+        if conversionStatus == noErr {
+            duration = TimeInterval(durationInSeconds)
+        } else {
+            // 如果转换失败，使用默认的每分钟120拍计算
+            // 1 beat = 1/120 * 60 = 0.5 秒
+            duration = TimeInterval(maxLength * 0.5)
+        }
     }
     
     private func updateState(_ newState: String) {
@@ -557,12 +589,20 @@ public class PlayMidifilePlugin: NSObject, FlutterPlugin {
     }
     
     private func updateProgress() {
-        guard let player = musicPlayer, musicSequence != nil, currentState == "playing" else { return }
+        guard let player = musicPlayer, let sequence = musicSequence, currentState == "playing" else { return }
         
         var time: MusicTimeStamp = 0
         let status = MusicPlayerGetTime(player, &time)
         if status == noErr {
-            currentPosition = time
+            // 将MusicTimeStamp（beats）转换为秒
+            var timeInSeconds: Float64 = 0
+            let conversionStatus = MusicSequenceGetSecondsForBeats(sequence, time, &timeInSeconds)
+            if conversionStatus == noErr {
+                currentPosition = TimeInterval(timeInSeconds)
+            } else {
+                // 如果转换失败，使用默认的每分钟120拍计算
+                currentPosition = TimeInterval(time * 0.5)
+            }
         }
         
         let progress = duration > 0 ? currentPosition / duration : 0.0
