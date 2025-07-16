@@ -577,9 +577,15 @@ public class PlayMidifilePlugin: NSObject, FlutterPlugin {
             self.progressEventSink?(info)
         }
         
-        // 检查是否播放完成
-        if currentPosition >= duration && duration > 0 {
+        // 检查是否播放完成（使用更严格的条件）
+        if currentState == "playing" && currentPosition >= duration && duration > 0 && progress >= 0.99 {
             DispatchQueue.main.async {
+                // 播放完成后立即停止播放器并重置位置和状态
+                if let player = self.musicPlayer {
+                    MusicPlayerStop(player)        // 明确停止播放器
+                    MusicPlayerSetTime(player, 0)  // 重置位置
+                }
+                self.currentPosition = 0
                 self.updateState("stopped")
                 self.stopProgressTimer()
             }
