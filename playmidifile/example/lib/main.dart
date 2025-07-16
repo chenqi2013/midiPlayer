@@ -33,6 +33,13 @@ class _MidiPlayerDemoState extends State<MidiPlayerDemo> {
   String _statusMessage = '未初始化';
   bool _isInitialized = false;
 
+  // 添加播放进度相关状态
+  MidiPlaybackInfo? _playbackInfo;
+  StreamSubscription<MidiPlaybackInfo>? _progressSubscription;
+  Timer? _progressTimer; // 添加定时器用于定期更新进度
+  bool _isPlaying = false; // 添加播放状态跟踪
+  StreamSubscription<MidiPlayerState>? _stateSubscription; // 添加状态监听器
+
   @override
   void initState() {
     super.initState();
@@ -41,6 +48,11 @@ class _MidiPlayerDemoState extends State<MidiPlayerDemo> {
 
   @override
   void dispose() {
+    // 取消流订阅
+    _progressSubscription?.cancel();
+    _stateSubscription?.cancel(); // 取消状态监听器
+    // 取消定时器
+    _progressTimer?.cancel();
     _player.dispose();
     super.dispose();
   }
@@ -48,6 +60,25 @@ class _MidiPlayerDemoState extends State<MidiPlayerDemo> {
   Future<void> _initializePlayer() async {
     try {
       await _player.initialize();
+
+      // 监听播放进度变化
+      _progressSubscription = _player.onProgressChanged.listen((info) {
+        setState(() {
+          _playbackInfo = info;
+        });
+      });
+
+      // 监听播放状态变化（主要用于错误处理）
+      _stateSubscription = _player.onStateChanged.listen((state) {
+        // 只处理错误状态
+        if (state == MidiPlayerState.error) {
+          setState(() {
+            _isPlaying = false;
+            _statusMessage = '播放错误';
+          });
+        }
+      });
+
       setState(() {
         _isInitialized = true;
         _statusMessage = '初始化成功';
@@ -59,6 +90,66 @@ class _MidiPlayerDemoState extends State<MidiPlayerDemo> {
     }
   }
 
+  // 启动进度更新定时器
+  void _startProgressTimer() {
+    _progressTimer?.cancel(); // 先取消现有的定时器
+    _progressTimer = Timer.periodic(const Duration(milliseconds: 200), (
+      timer,
+    ) async {
+      if (_currentFile != null) {
+        try {
+          final info = await _player.getCurrentInfo();
+          if (mounted && info != null) {
+            // 确保进度值在有效范围内
+            final validProgress = info.progress.clamp(0.0, 1.0);
+            final validInfo = MidiPlaybackInfo(
+              currentPositionMs: info.currentPositionMs.clamp(
+                0,
+                info.durationMs,
+              ),
+              durationMs: info.durationMs,
+              progress: validProgress,
+            );
+
+            setState(() {
+              _playbackInfo = validInfo;
+            });
+
+            // 检测播放完成（进度达到100%或接近100%）
+            if (_isPlaying && validProgress >= 0.99) {
+              _handlePlaybackComplete();
+            }
+          }
+        } catch (e) {
+          // 忽略获取进度信息时的错误
+        }
+      }
+    });
+  }
+
+  // 处理播放完成
+  void _handlePlaybackComplete() {
+    _stopProgressTimer();
+    setState(() {
+      _isPlaying = false;
+      _statusMessage = '播放完成';
+      // 重置进度条到0位置
+      if (_playbackInfo != null) {
+        _playbackInfo = MidiPlaybackInfo(
+          currentPositionMs: 0,
+          durationMs: _playbackInfo!.durationMs,
+          progress: 0.0,
+        );
+      }
+    });
+  }
+
+  // 停止进度更新定时器
+  void _stopProgressTimer() {
+    _progressTimer?.cancel();
+    _progressTimer = null;
+  }
+
   Future<void> _loadAssetFile() async {
     try {
       setState(() {
@@ -68,9 +159,12 @@ class _MidiPlayerDemoState extends State<MidiPlayerDemo> {
       final success = await _player.loadAsset('assets/demo.mid');
 
       if (success) {
+        // 加载成功后获取播放信息，这样就能显示进度条
+        final info = await _player.getCurrentInfo();
         setState(() {
           _currentFile = 'demo.mid (资源文件)';
           _statusMessage = '资源文件加载成功';
+          _playbackInfo = info; // 设置播放信息，让进度条显示
         });
       } else {
         setState(() {
@@ -92,8 +186,11 @@ class _MidiPlayerDemoState extends State<MidiPlayerDemo> {
 
     try {
       await _player.play();
+      _startProgressTimer(); // 开始播放时启动进度定时器
+      // 手动设置状态，确保按钮立即更新
       setState(() {
-        _statusMessage = '开始播放';
+        _isPlaying = true;
+        _statusMessage = '播放中';
       });
     } catch (e) {
       setState(() {
@@ -105,7 +202,10 @@ class _MidiPlayerDemoState extends State<MidiPlayerDemo> {
   Future<void> _pause() async {
     try {
       await _player.pause();
+      _stopProgressTimer(); // 暂停时停止进度定时器
+      // 手动设置状态，确保按钮立即更新
       setState(() {
+        _isPlaying = false;
         _statusMessage = '已暂停';
       });
     } catch (e) {
@@ -118,13 +218,34 @@ class _MidiPlayerDemoState extends State<MidiPlayerDemo> {
   Future<void> _stop() async {
     try {
       await _player.stop();
+      _stopProgressTimer(); // 停止时停止进度定时器
+
+      // 手动设置状态和重置进度条，确保立即更新
       setState(() {
+        _isPlaying = false;
         _statusMessage = '已停止';
+        // 重置进度条到0位置
+        if (_playbackInfo != null) {
+          _playbackInfo = MidiPlaybackInfo(
+            currentPositionMs: 0,
+            durationMs: _playbackInfo!.durationMs,
+            progress: 0.0,
+          );
+        }
       });
     } catch (e) {
       setState(() {
         _statusMessage = '停止失败: $e';
       });
+    }
+  }
+
+  // 切换播放/暂停状态
+  Future<void> _togglePlayPause() async {
+    if (_isPlaying) {
+      await _pause();
+    } else {
+      await _play();
     }
   }
 
@@ -237,19 +358,72 @@ class _MidiPlayerDemoState extends State<MidiPlayerDemo> {
                       ),
                       const SizedBox(height: 12),
 
+                      // 播放进度条
+                      if (_currentFile != null) ...[
+                        Row(
+                          children: [
+                            // 当前时间
+                            Text(
+                              _playbackInfo != null
+                                  ? _formatDuration(
+                                      _playbackInfo!.currentPositionMs,
+                                    )
+                                  : '0:00',
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                            // 进度条
+                            Expanded(
+                              child: Slider(
+                                value: (_playbackInfo?.progress ?? 0.0).clamp(
+                                  0.0,
+                                  1.0,
+                                ),
+                                onChanged:
+                                    _currentFile != null &&
+                                        _playbackInfo != null
+                                    ? (value) async {
+                                        try {
+                                          final positionMs =
+                                              (value *
+                                                      _playbackInfo!.durationMs)
+                                                  .round();
+                                          await _player.seekTo(positionMs);
+                                        } catch (e) {
+                                          setState(() {
+                                            _statusMessage = '跳转失败: $e';
+                                          });
+                                        }
+                                      }
+                                    : null,
+                                min: 0.0,
+                                max: 1.0,
+                              ),
+                            ),
+                            // 总时间
+                            Text(
+                              _playbackInfo != null
+                                  ? _formatDuration(_playbackInfo!.durationMs)
+                                  : '0:00',
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                      ],
+
                       // 控制按钮
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                         children: [
+                          // 播放/暂停切换按钮
                           IconButton.filled(
-                            onPressed: _currentFile != null ? _play : null,
-                            icon: const Icon(Icons.play_arrow),
-                            tooltip: '播放',
-                          ),
-                          IconButton.filled(
-                            onPressed: _currentFile != null ? _pause : null,
-                            icon: const Icon(Icons.pause),
-                            tooltip: '暂停',
+                            onPressed: _currentFile != null
+                                ? _togglePlayPause
+                                : null,
+                            icon: Icon(
+                              _isPlaying ? Icons.pause : Icons.play_arrow,
+                            ),
+                            tooltip: _isPlaying ? '暂停' : '播放',
                           ),
                           IconButton.filled(
                             onPressed: _currentFile != null ? _stop : null,
@@ -314,5 +488,13 @@ class _MidiPlayerDemoState extends State<MidiPlayerDemo> {
         ),
       ),
     );
+  }
+
+  // 格式化时间显示
+  String _formatDuration(int milliseconds) {
+    final duration = Duration(milliseconds: milliseconds);
+    final minutes = duration.inMinutes;
+    final seconds = duration.inSeconds % 60;
+    return '$minutes:${seconds.toString().padLeft(2, '0')}';
   }
 }

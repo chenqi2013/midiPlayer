@@ -148,20 +148,31 @@ class PlayMidifilePlugin: FlutterPlugin, MethodCallHandler {
         return
       }
       
+      // 添加标志位确保result只被回复一次
+      var resultReplied = false
+      
       mediaPlayer = MediaPlayer().apply {
         setDataSource(filePath)
         prepareAsync()
         setOnPreparedListener { mp ->
-          this@PlayMidifilePlugin.duration = mp.duration
-          updateState("stopped")
-          result.success(true)
+          if (!resultReplied) {
+            resultReplied = true
+            this@PlayMidifilePlugin.duration = mp.duration
+            updateState("stopped")
+            result.success(true)
+          }
         }
         setOnErrorListener { _, what, extra ->
-          updateState("error")
-          result.error("LOAD_ERROR", "加载文件失败: what=$what, extra=$extra", null)
+          if (!resultReplied) {
+            resultReplied = true
+            updateState("error")
+            result.error("LOAD_ERROR", "加载文件失败: what=$what, extra=$extra", null)
+          }
           true
         }
         setOnCompletionListener {
+          // 播放完成后重置状态和位置
+          this@PlayMidifilePlugin.currentPosition = 0
           updateState("stopped")
           stopProgressTimer()
         }
@@ -184,6 +195,9 @@ class PlayMidifilePlugin: FlutterPlugin, MethodCallHandler {
         return
       }
       
+      // 添加标志位确保result只被回复一次
+      var resultReplied = false
+      
       mediaPlayer = MediaPlayer().apply {
         try {
           val afd = assetManager.openFd(assetKey)
@@ -198,16 +212,24 @@ class PlayMidifilePlugin: FlutterPlugin, MethodCallHandler {
         
         prepareAsync()
         setOnPreparedListener { mp ->
-          this@PlayMidifilePlugin.duration = mp.duration
-          updateState("stopped")
-          result.success(true)
+          if (!resultReplied) {
+            resultReplied = true
+            this@PlayMidifilePlugin.duration = mp.duration
+            updateState("stopped")
+            result.success(true)
+          }
         }
         setOnErrorListener { _, what, extra ->
-          updateState("error")
-          result.error("LOAD_ERROR", "加载资源失败: $assetPath, what=$what, extra=$extra", null)
+          if (!resultReplied) {
+            resultReplied = true
+            updateState("error")
+            result.error("LOAD_ERROR", "加载资源失败: $assetPath, what=$what, extra=$extra", null)
+          }
           true
         }
         setOnCompletionListener {
+          // 播放完成后重置状态和位置
+          this@PlayMidifilePlugin.currentPosition = 0
           updateState("stopped")
           stopProgressTimer()
         }
@@ -260,7 +282,16 @@ class PlayMidifilePlugin: FlutterPlugin, MethodCallHandler {
         if (mp.isPlaying) {
           mp.stop()
         }
-        mp.prepareAsync()
+        // 重新准备媒体播放器，重置到开始位置
+        // 但是清除旧的监听器避免回调冲突
+        mp.setOnPreparedListener(null)
+        mp.setOnErrorListener(null)
+        try {
+          mp.prepareAsync()
+        } catch (e: Exception) {
+          // 如果prepare失败，忽略错误，只更新状态
+        }
+        currentPosition = 0
         updateState("stopped")
         stopProgressTimer()
       }
@@ -325,7 +356,14 @@ class PlayMidifilePlugin: FlutterPlugin, MethodCallHandler {
     try {
       val mp = mediaPlayer
       if (mp != null) {
-        currentPosition = mp.currentPosition
+        // 如果是停止状态，直接返回位置为0
+        val actualPosition = if (currentState == "stopped") {
+          0
+        } else {
+          mp.currentPosition
+        }
+        
+        currentPosition = actualPosition
         val progress = if (duration > 0) currentPosition.toDouble() / duration.toDouble() else 0.0
         
         val info = mapOf(
