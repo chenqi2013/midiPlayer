@@ -2,15 +2,13 @@
 
 #include <flutter/plugin_registrar_windows.h>
 #include <flutter/method_channel.h>
-#include <flutter/event_channel.h>
 #include <flutter/standard_method_codec.h>
 #include <flutter/encodable_value.h>
+#define NOMINMAX  // Prevent Windows min/max macros from conflicting with std::min/std::max
 #include <windows.h>
 #include <mmsystem.h>
 #include <memory>
 #include <string>
-#include <thread>
-#include <chrono>
 
 #pragma comment(lib, "winmm.lib")
 
@@ -34,26 +32,10 @@ class PlayMidifilePlugin : public flutter::Plugin {
       const flutter::MethodCall<flutter::EncodableValue>& method_call,
       std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result);
 
-  // Event channel handlers
-  void StartProgressUpdates();
-  void StopProgressUpdates();
-  void UpdateProgress();
-  void UpdateState(const std::string& new_state);
-
   HWND midi_window_;
   std::string current_state_;
   DWORD duration_ms_;
   DWORD current_position_ms_;
-  
-  // Event channels
-  std::unique_ptr<flutter::EventChannel<flutter::EncodableValue>> progress_channel_;
-  std::unique_ptr<flutter::EventChannel<flutter::EncodableValue>> state_channel_;
-  std::unique_ptr<flutter::EventSink<flutter::EncodableValue>> progress_sink_;
-  std::unique_ptr<flutter::EventSink<flutter::EncodableValue>> state_sink_;
-  
-  // Progress timer
-  std::thread progress_thread_;
-  bool progress_running_;
 };
 
 // static
@@ -66,43 +48,7 @@ void PlayMidifilePlugin::RegisterWithRegistrar(
 
   auto plugin = std::make_unique<PlayMidifilePlugin>();
 
-  // Register event channels
-  plugin->progress_channel_ = std::make_unique<flutter::EventChannel<flutter::EncodableValue>>(
-      registrar->messenger(), "playmidifile/progress",
-      &flutter::StandardMethodCodec::GetInstance());
-  plugin->state_channel_ = std::make_unique<flutter::EventChannel<flutter::EncodableValue>>(
-      registrar->messenger(), "playmidifile/state",
-      &flutter::StandardMethodCodec::GetInstance());
-
-  // Set event channel handlers
-  auto progress_handler = std::make_unique<flutter::StreamHandlerFunctions<flutter::EncodableValue>>(
-      [plugin_pointer = plugin.get()](const flutter::EncodableValue* arguments,
-                                      std::unique_ptr<flutter::EventSink<flutter::EncodableValue>>&& events)
-          -> std::unique_ptr<flutter::StreamHandlerError<flutter::EncodableValue>> {
-        plugin_pointer->progress_sink_ = std::move(events);
-        return nullptr;
-      },
-      [plugin_pointer = plugin.get()](const flutter::EncodableValue* arguments)
-          -> std::unique_ptr<flutter::StreamHandlerError<flutter::EncodableValue>> {
-        plugin_pointer->progress_sink_ = nullptr;
-        return nullptr;
-      });
-
-  auto state_handler = std::make_unique<flutter::StreamHandlerFunctions<flutter::EncodableValue>>(
-      [plugin_pointer = plugin.get()](const flutter::EncodableValue* arguments,
-                                      std::unique_ptr<flutter::EventSink<flutter::EncodableValue>>&& events)
-          -> std::unique_ptr<flutter::StreamHandlerError<flutter::EncodableValue>> {
-        plugin_pointer->state_sink_ = std::move(events);
-        return nullptr;
-      },
-      [plugin_pointer = plugin.get()](const flutter::EncodableValue* arguments)
-          -> std::unique_ptr<flutter::StreamHandlerError<flutter::EncodableValue>> {
-        plugin_pointer->state_sink_ = nullptr;
-        return nullptr;
-      });
-
-  plugin->progress_channel_->SetStreamHandler(std::move(progress_handler));
-  plugin->state_channel_->SetStreamHandler(std::move(state_handler));
+  // Note: EventChannel support is temporarily disabled due to API compatibility issues
 
   channel->SetMethodCallHandler(
       [plugin_pointer = plugin.get()](const auto& call, auto result) {
@@ -113,10 +59,9 @@ void PlayMidifilePlugin::RegisterWithRegistrar(
 }
 
 PlayMidifilePlugin::PlayMidifilePlugin() 
-    : midi_window_(nullptr), current_state_("stopped"), duration_ms_(0), current_position_ms_(0), progress_running_(false) {}
+    : midi_window_(nullptr), current_state_("stopped"), duration_ms_(0), current_position_ms_(0) {}
 
 PlayMidifilePlugin::~PlayMidifilePlugin() {
-  StopProgressUpdates();
   if (midi_window_) {
     mciSendString(L"close midi", nullptr, 0, midi_window_);
     DestroyWindow(midi_window_);
@@ -164,6 +109,9 @@ void PlayMidifilePlugin::HandleMethodCall(
          MCIERROR error = mciSendString(cmd.c_str(), nullptr, 0, midi_window_);
          
          if (error == 0) {
+           // Set time format to milliseconds
+           mciSendString(L"set midi time format milliseconds", nullptr, 0, midi_window_);
+           
            // Get duration
            wchar_t buffer[256];
            error = mciSendString(L"status midi length", buffer, sizeof(buffer)/sizeof(wchar_t), midi_window_);
@@ -171,7 +119,6 @@ void PlayMidifilePlugin::HandleMethodCall(
              duration_ms_ = _wtoi(buffer);
            }
            current_state_ = "stopped";
-           UpdateState(current_state_);
            result->Success(flutter::EncodableValue(true));
          } else {
            // Get error message
@@ -222,6 +169,9 @@ void PlayMidifilePlugin::HandleMethodCall(
          MCIERROR error = mciSendString(cmd.c_str(), nullptr, 0, midi_window_);
          
          if (error == 0) {
+           // Set time format to milliseconds
+           mciSendString(L"set midi time format milliseconds", nullptr, 0, midi_window_);
+           
            // Get duration
            wchar_t buffer[256];
            error = mciSendString(L"status midi length", buffer, sizeof(buffer)/sizeof(wchar_t), midi_window_);
@@ -229,7 +179,6 @@ void PlayMidifilePlugin::HandleMethodCall(
              duration_ms_ = _wtoi(buffer);
            }
            current_state_ = "stopped";
-           UpdateState(current_state_);
            result->Success(flutter::EncodableValue(true));
          } else {
            // Get error message
@@ -249,21 +198,37 @@ void PlayMidifilePlugin::HandleMethodCall(
       result->Error("INVALID_ARGUMENT", "Arguments required");
     }
   } else if (method == "play") {
-    MCIERROR error = mciSendString(L"play midi", nullptr, 0, midi_window_);
+    // Check current status first
+    wchar_t mode_buffer[256];
+    MCIERROR error = mciSendString(L"status midi mode", mode_buffer, sizeof(mode_buffer)/sizeof(wchar_t), midi_window_);
+    if (error == 0) {
+      std::wstring mode(mode_buffer);
+      // If stopped (including after completion), seek to beginning first
+      if (mode == L"stopped") {
+        mciSendString(L"seek midi to start", nullptr, 0, midi_window_);
+        current_position_ms_ = 0;
+      }
+    }
+    
+    error = mciSendString(L"play midi", nullptr, 0, midi_window_);
     if (error == 0) {
       current_state_ = "playing";
-      UpdateState(current_state_);
-      StartProgressUpdates();
       result->Success();
     } else {
-      result->Error("PLAY_ERROR", "Failed to play");
+      // Get error message for debugging
+      wchar_t error_buffer[256];
+      mciGetErrorString(error, error_buffer, sizeof(error_buffer)/sizeof(wchar_t));
+      std::string error_msg = "MCI Play Error: ";
+      int size_needed = WideCharToMultiByte(CP_UTF8, 0, error_buffer, -1, NULL, 0, NULL, NULL);
+      std::string error_str(size_needed, 0);
+      WideCharToMultiByte(CP_UTF8, 0, error_buffer, -1, &error_str[0], size_needed, NULL, NULL);
+      error_msg += error_str;
+      result->Error("PLAY_ERROR", error_msg);
     }
   } else if (method == "pause") {
     MCIERROR error = mciSendString(L"pause midi", nullptr, 0, midi_window_);
     if (error == 0) {
       current_state_ = "paused";
-      UpdateState(current_state_);
-      StopProgressUpdates();
       result->Success();
     } else {
       result->Error("PAUSE_ERROR", "Failed to pause");
@@ -271,10 +236,10 @@ void PlayMidifilePlugin::HandleMethodCall(
   } else if (method == "stop") {
     MCIERROR error = mciSendString(L"stop midi", nullptr, 0, midi_window_);
     if (error == 0) {
+      // After stopping, seek to the beginning for next playback
+      mciSendString(L"seek midi to start", nullptr, 0, midi_window_);
       current_position_ms_ = 0;
       current_state_ = "stopped";
-      UpdateState(current_state_);
-      StopProgressUpdates();
       result->Success();
     } else {
       result->Error("STOP_ERROR", "Failed to stop");
@@ -285,13 +250,25 @@ void PlayMidifilePlugin::HandleMethodCall(
       auto it = args->find(flutter::EncodableValue("positionMs"));
       if (it != args->end()) {
         int position_ms = std::get<int>(it->second);
+        
+        // Ensure position is within valid range
+        position_ms = (position_ms < 0) ? 0 : ((position_ms > static_cast<int>(duration_ms_)) ? static_cast<int>(duration_ms_) : position_ms);
+        
         std::wstring cmd = L"seek midi to " + std::to_wstring(position_ms);
         MCIERROR error = mciSendString(cmd.c_str(), nullptr, 0, midi_window_);
         if (error == 0) {
           current_position_ms_ = position_ms;
           result->Success();
         } else {
-          result->Error("SEEK_ERROR", "Failed to seek");
+          // Get error message for debugging
+          wchar_t error_buffer[256];
+          mciGetErrorString(error, error_buffer, sizeof(error_buffer)/sizeof(wchar_t));
+          std::string error_msg = "MCI Seek Error: ";
+          int size_needed = WideCharToMultiByte(CP_UTF8, 0, error_buffer, -1, NULL, 0, NULL, NULL);
+          std::string error_str(size_needed, 0);
+          WideCharToMultiByte(CP_UTF8, 0, error_buffer, -1, &error_str[0], size_needed, NULL, NULL);
+          error_msg += error_str;
+          result->Error("SEEK_ERROR", error_msg);
         }
       } else {
         result->Error("INVALID_ARGUMENT", "Position required");
@@ -319,17 +296,47 @@ void PlayMidifilePlugin::HandleMethodCall(
     // Windows MIDI API does not support speed control
     result->Success();
   } else if (method == "getCurrentInfo") {
+    // Set time format to milliseconds first
+    mciSendString(L"set midi time format milliseconds", nullptr, 0, midi_window_);
+    
     // Get current position
     wchar_t buffer[256];
     MCIERROR error = mciSendString(L"status midi position", buffer, sizeof(buffer)/sizeof(wchar_t), midi_window_);
     if (error == 0) {
       current_position_ms_ = _wtoi(buffer);
+    } else {
+      // If failed to get position, keep the current stored value
+    }
+    
+    // Also get duration to make sure it's correct
+    wchar_t duration_buffer[256];
+    error = mciSendString(L"status midi length", duration_buffer, sizeof(duration_buffer)/sizeof(wchar_t), midi_window_);
+    if (error == 0) {
+      duration_ms_ = _wtoi(duration_buffer);
+    }
+    
+    // Check if playback is still active
+    wchar_t mode_buffer[256];
+    error = mciSendString(L"status midi mode", mode_buffer, sizeof(mode_buffer)/sizeof(wchar_t), midi_window_);
+    if (error == 0) {
+      std::wstring mode(mode_buffer);
+      if (mode == L"stopped" && current_state_ == "playing") {
+        // Playback has completed
+        current_state_ = "stopped";
+        current_position_ms_ = 0; // Reset position for next playback
+      } else if (mode == L"playing") {
+        current_state_ = "playing";
+      } else if (mode == L"paused") {
+        current_state_ = "paused";
+      }
     }
     
     flutter::EncodableMap info;
     info[flutter::EncodableValue("currentPositionMs")] = flutter::EncodableValue(static_cast<int>(current_position_ms_));
     info[flutter::EncodableValue("durationMs")] = flutter::EncodableValue(static_cast<int>(duration_ms_));
     double progress = duration_ms_ > 0 ? static_cast<double>(current_position_ms_) / duration_ms_ : 0.0;
+    // Ensure progress is within valid range
+    progress = (progress < 0.0) ? 0.0 : ((progress > 1.0) ? 1.0 : progress);
     info[flutter::EncodableValue("progress")] = flutter::EncodableValue(progress);
     result->Success(flutter::EncodableValue(info));
   } else {
@@ -337,61 +344,7 @@ void PlayMidifilePlugin::HandleMethodCall(
   }
 }
 
-void PlayMidifilePlugin::StartProgressUpdates() {
-  StopProgressUpdates(); // 确保没有重复的线程
-  progress_running_ = true;
-  progress_thread_ = std::thread([this]() {
-    while (progress_running_) {
-      UpdateProgress();
-      std::this_thread::sleep_for(std::chrono::milliseconds(200));
-    }
-  });
-}
 
-void PlayMidifilePlugin::StopProgressUpdates() {
-  progress_running_ = false;
-  if (progress_thread_.joinable()) {
-    progress_thread_.join();
-  }
-}
-
-void PlayMidifilePlugin::UpdateProgress() {
-  if (current_state_ != "playing") return;
-  
-  // Get current position
-  wchar_t buffer[256];
-  MCIERROR error = mciSendString(L"status midi position", buffer, sizeof(buffer)/sizeof(wchar_t), midi_window_);
-  if (error == 0) {
-    current_position_ms_ = _wtoi(buffer);
-  }
-  
-  double progress = duration_ms_ > 0 ? static_cast<double>(current_position_ms_) / duration_ms_ : 0.0;
-  
-  // 发送进度信息
-  if (progress_sink_) {
-    flutter::EncodableMap info;
-    info[flutter::EncodableValue("currentPositionMs")] = flutter::EncodableValue(static_cast<int>(current_position_ms_));
-    info[flutter::EncodableValue("durationMs")] = flutter::EncodableValue(static_cast<int>(duration_ms_));
-    info[flutter::EncodableValue("progress")] = flutter::EncodableValue(progress);
-    progress_sink_->Success(flutter::EncodableValue(info));
-  }
-  
-  // 检查播放是否完成
-  if (current_state_ == "playing" && current_position_ms_ >= duration_ms_ && duration_ms_ > 0 && progress >= 0.99) {
-    // 播放完成，重置状态和位置
-    mciSendString(L"stop midi", nullptr, 0, midi_window_);
-    current_position_ms_ = 0;
-    current_state_ = "stopped";
-    UpdateState(current_state_);
-    StopProgressUpdates();
-  }
-}
-
-void PlayMidifilePlugin::UpdateState(const std::string& new_state) {
-  if (state_sink_) {
-    state_sink_->Success(flutter::EncodableValue(new_state));
-  }
-}
 
 }  // namespace playmidifile
 
