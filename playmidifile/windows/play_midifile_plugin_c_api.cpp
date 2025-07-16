@@ -109,6 +109,9 @@ void PlayMidifilePlugin::HandleMethodCall(
          MCIERROR error = mciSendString(cmd.c_str(), nullptr, 0, midi_window_);
          
          if (error == 0) {
+           // Set time format to milliseconds
+           mciSendString(L"set midi time format milliseconds", nullptr, 0, midi_window_);
+           
            // Get duration
            wchar_t buffer[256];
            error = mciSendString(L"status midi length", buffer, sizeof(buffer)/sizeof(wchar_t), midi_window_);
@@ -166,6 +169,9 @@ void PlayMidifilePlugin::HandleMethodCall(
          MCIERROR error = mciSendString(cmd.c_str(), nullptr, 0, midi_window_);
          
          if (error == 0) {
+           // Set time format to milliseconds
+           mciSendString(L"set midi time format milliseconds", nullptr, 0, midi_window_);
+           
            // Get duration
            wchar_t buffer[256];
            error = mciSendString(L"status midi length", buffer, sizeof(buffer)/sizeof(wchar_t), midi_window_);
@@ -290,6 +296,9 @@ void PlayMidifilePlugin::HandleMethodCall(
     // Windows MIDI API does not support speed control
     result->Success();
   } else if (method == "getCurrentInfo") {
+    // Set time format to milliseconds first
+    mciSendString(L"set midi time format milliseconds", nullptr, 0, midi_window_);
+    
     // Get current position
     wchar_t buffer[256];
     MCIERROR error = mciSendString(L"status midi position", buffer, sizeof(buffer)/sizeof(wchar_t), midi_window_);
@@ -297,6 +306,13 @@ void PlayMidifilePlugin::HandleMethodCall(
       current_position_ms_ = _wtoi(buffer);
     } else {
       // If failed to get position, keep the current stored value
+    }
+    
+    // Also get duration to make sure it's correct
+    wchar_t duration_buffer[256];
+    error = mciSendString(L"status midi length", duration_buffer, sizeof(duration_buffer)/sizeof(wchar_t), midi_window_);
+    if (error == 0) {
+      duration_ms_ = _wtoi(duration_buffer);
     }
     
     // Check if playback is still active
