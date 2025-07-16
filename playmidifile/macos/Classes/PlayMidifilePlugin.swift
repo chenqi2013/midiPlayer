@@ -104,149 +104,378 @@ public class PlayMidifilePlugin: NSObject, FlutterPlugin {
     }
     
     private func loadFile(filePath: String, result: @escaping FlutterResult) {
-        do {
-            releaseAudioPlayer()
-            
-            let url = URL(fileURLWithPath: filePath)
-            guard FileManager.default.fileExists(atPath: filePath) else {
-                result(FlutterError(code: "FILE_NOT_FOUND", message: "文件不存在: \(filePath)", details: nil))
-                return
-            }
-            
-            audioPlayer = try AVAudioPlayer(contentsOf: url)
-            audioPlayer?.delegate = self
-            audioPlayer?.prepareToPlay()
-            
-            duration = audioPlayer?.duration ?? 0
-            updateState("stopped")
-            result(true)
-        } catch {
-            result(FlutterError(code: "LOAD_ERROR", message: "加载文件失败: \(error.localizedDescription)", details: nil))
+        guard isInitialized, let player = musicPlayer else {
+            result(FlutterError(code: "NOT_INITIALIZED", message: "播放器未初始化", details: nil))
+            return
         }
+        
+        releaseMusicSequence()
+        
+        guard FileManager.default.fileExists(atPath: filePath) else {
+            result(FlutterError(code: "FILE_NOT_FOUND", message: "文件不存在: \(filePath)", details: nil))
+            return
+        }
+        
+        let url = URL(fileURLWithPath: filePath)
+        
+        // 创建MusicSequence
+        var sequence: MusicSequence?
+        var status = NewMusicSequence(&sequence)
+        if status != noErr {
+            result(FlutterError(code: "LOAD_ERROR", message: "创建MusicSequence失败: \(status)", details: nil))
+            return
+        }
+        
+        // 从文件加载MIDI序列
+        status = MusicSequenceFileLoad(sequence!, url as CFURL, .midiType, MusicSequenceLoadFlags())
+        if status != noErr {
+            DisposeMusicSequence(sequence!)
+            result(FlutterError(code: "LOAD_ERROR", message: "加载MIDI文件失败: \(status)", details: nil))
+            return
+        }
+        
+        // 设置播放器的序列
+        status = MusicPlayerSetSequence(player, sequence)
+        if status != noErr {
+            DisposeMusicSequence(sequence!)
+            result(FlutterError(code: "LOAD_ERROR", message: "设置播放序列失败: \(status)", details: nil))
+            return
+        }
+        
+        // 预加载
+        status = MusicPlayerPreroll(player)
+        if status != noErr {
+            DisposeMusicSequence(sequence!)
+            result(FlutterError(code: "LOAD_ERROR", message: "预加载失败: \(status)", details: nil))
+            return
+        }
+        
+        musicSequence = sequence
+        calculateDuration()
+        updateState("stopped")
+        result(true)
     }
     
     private func loadAsset(assetPath: String, result: @escaping FlutterResult) {
-        do {
-            releaseAudioPlayer()
-            
-            // 首先尝试使用Flutter查找键获取资源路径
-            let key = FlutterDartProject.lookupKey(forAsset: assetPath)
-            var resourcePath: String?
-            
-            if let path = Bundle.main.path(forResource: key, ofType: nil) {
-                resourcePath = path
-            } else {
-                // 如果Flutter资源查找失败，尝试直接使用文件名
-                // 移除 "assets/" 前缀（如果存在）
-                let fileName = assetPath.hasPrefix("assets/") ? String(assetPath.dropFirst(7)) : assetPath
-                
-                // 分离文件名和扩展名
-                let url = URL(fileURLWithPath: fileName)
-                let nameWithoutExtension = url.deletingPathExtension().lastPathComponent
-                let fileExtension = url.pathExtension.isEmpty ? nil : url.pathExtension
-                
-                resourcePath = Bundle.main.path(forResource: nameWithoutExtension, ofType: fileExtension)
-            }
-            
-            guard let path = resourcePath else {
-                result(FlutterError(code: "FILE_NOT_FOUND", message: "资源文件不存在: \(assetPath)", details: nil))
-                return
-            }
-            
-            let url = URL(fileURLWithPath: path)
-            audioPlayer = try AVAudioPlayer(contentsOf: url)
-            audioPlayer?.delegate = self
-            audioPlayer?.prepareToPlay()
-            
-            duration = audioPlayer?.duration ?? 0
-            updateState("stopped")
-            result(true)
-        } catch {
-            result(FlutterError(code: "LOAD_ERROR", message: "加载资源失败: \(error.localizedDescription)", details: nil))
+        guard isInitialized, let player = musicPlayer else {
+            result(FlutterError(code: "NOT_INITIALIZED", message: "播放器未初始化", details: nil))
+            return
         }
+        
+        releaseMusicSequence()
+        
+        var resourcePath: String?
+        
+        // 尝试多种方式查找assets文件，并打印调试信息
+        print("🔍 查找assets文件: \(assetPath)")
+        
+        // 方法1: 使用Flutter的lookupKey
+        let key = FlutterDartProject.lookupKey(forAsset: assetPath)
+        resourcePath = Bundle.main.path(forResource: key, ofType: nil)
+        print("📁 方法1 - Flutter lookup key '\(key)': \(resourcePath ?? "未找到")")
+        
+        // 方法1.5: 直接根据lookup key构建完整路径
+        if resourcePath == nil && !key.isEmpty {
+            let fullPath = Bundle.main.bundlePath + "/" + key
+            if FileManager.default.fileExists(atPath: fullPath) {
+                resourcePath = fullPath
+                print("📁 方法1.5 - 根据lookup key构建路径成功: \(fullPath)")
+            } else {
+                print("📁 方法1.5 - 根据lookup key构建路径失败: \(fullPath)")
+                
+                // 备用路径：包含Versions/A
+                let altPath = Bundle.main.bundlePath + "/Contents/Frameworks/App.framework/Versions/A/Resources/flutter_assets/" + assetPath
+                if FileManager.default.fileExists(atPath: altPath) {
+                    resourcePath = altPath
+                    print("📁 方法1.5 - 备用路径(Versions/A)成功: \(altPath)")
+                } else {
+                    print("📁 方法1.5 - 备用路径(Versions/A)失败: \(altPath)")
+                    
+                    // 再次备用路径：不含Versions/A
+                    let altPath2 = Bundle.main.bundlePath + "/Contents/Frameworks/App.framework/Resources/flutter_assets/" + assetPath
+                    if FileManager.default.fileExists(atPath: altPath2) {
+                        resourcePath = altPath2
+                        print("📁 方法1.5 - 备用路径2成功: \(altPath2)")
+                    } else {
+                        print("📁 方法1.5 - 备用路径2失败: \(altPath2)")
+                    }
+                }
+            }
+        }
+        
+        // 方法2: 尝试直接使用asset路径
+        if resourcePath == nil {
+            resourcePath = Bundle.main.path(forResource: assetPath, ofType: nil)
+            print("📁 方法2 - 直接路径 '\(assetPath)': \(resourcePath ?? "未找到")")
+        }
+        
+        // 方法3: 移除assets/前缀后尝试
+        if resourcePath == nil {
+            let fileName = assetPath.hasPrefix("assets/") ? String(assetPath.dropFirst(7)) : assetPath
+            resourcePath = Bundle.main.path(forResource: fileName, ofType: nil)
+            print("📁 方法3 - 移除前缀 '\(fileName)': \(resourcePath ?? "未找到")")
+        }
+        
+        // 方法4: 分离文件名和扩展名
+        if resourcePath == nil {
+            let fileName = assetPath.hasPrefix("assets/") ? String(assetPath.dropFirst(7)) : assetPath
+            let url = URL(fileURLWithPath: fileName)
+            let nameWithoutExtension = url.deletingPathExtension().lastPathComponent
+            let fileExtension = url.pathExtension.isEmpty ? nil : url.pathExtension
+            resourcePath = Bundle.main.path(forResource: nameWithoutExtension, ofType: fileExtension)
+            print("📁 方法4 - 文件名分离 '\(nameWithoutExtension)' + '\(fileExtension ?? "nil")': \(resourcePath ?? "未找到")")
+        }
+        
+        // 方法5: 在Flutter.framework/flutter_assets中查找
+        if resourcePath == nil {
+            if let frameworkBundle = Bundle(identifier: "io.flutter.flutter") {
+                let assetKey = "flutter_assets/" + assetPath
+                resourcePath = frameworkBundle.path(forResource: assetKey, ofType: nil)
+                print("📁 方法5 - Flutter框架 '\(assetKey)': \(resourcePath ?? "未找到")")
+            } else {
+                print("📁 方法5 - Flutter框架: Bundle未找到")
+            }
+        }
+        
+        // 方法6: 直接在App bundle的flutter_assets中查找
+        if resourcePath == nil {
+            let assetKey = "flutter_assets/" + assetPath
+            resourcePath = Bundle.main.path(forResource: assetKey, ofType: nil)
+            print("📁 方法6 - App flutter_assets '\(assetKey)': \(resourcePath ?? "未找到")")
+        }
+        
+        // 方法7: 直接访问App.framework
+        if resourcePath == nil {
+            let appFrameworkPath = Bundle.main.bundlePath + "/Contents/Frameworks/App.framework"
+            if FileManager.default.fileExists(atPath: appFrameworkPath) {
+                print("📁 方法7 - App.framework存在: \(appFrameworkPath)")
+                
+                // 尝试加载App.framework bundle
+                if let appBundle = Bundle(path: appFrameworkPath) {
+                    print("📁 方法7 - App.framework bundle加载成功")
+                    resourcePath = appBundle.path(forResource: "flutter_assets/" + assetPath, ofType: nil)
+                    print("📁 方法7 - App.framework查找结果: \(resourcePath ?? "未找到")")
+                    
+                    if resourcePath == nil {
+                        // 列出App.framework的内容
+                        if let appResourcesPath = appBundle.resourcePath {
+                            print("📁 方法7 - App.framework Resources路径: \(appResourcesPath)")
+                            do {
+                                let contents = try FileManager.default.contentsOfDirectory(atPath: appResourcesPath)
+                                print("📁 方法7 - App.framework Resources内容: \(contents.prefix(10))")
+                                
+                                let flutterAssetsPath = appResourcesPath + "/flutter_assets"
+                                if FileManager.default.fileExists(atPath: flutterAssetsPath) {
+                                    let assetsContents = try FileManager.default.contentsOfDirectory(atPath: flutterAssetsPath)
+                                    print("📁 方法7 - App.framework flutter_assets内容: \(assetsContents.prefix(10))")
+                                    
+                                    let directPath = flutterAssetsPath + "/" + assetPath
+                                    if FileManager.default.fileExists(atPath: directPath) {
+                                        resourcePath = directPath
+                                        print("📁 方法7 - App.framework直接路径成功: \(directPath)")
+                                    }
+                                }
+                            } catch {
+                                print("📁 方法7 - 无法列出App.framework目录内容: \(error)")
+                            }
+                        }
+                    }
+                } else {
+                    print("📁 方法7 - App.framework bundle加载失败")
+                }
+            } else {
+                print("📁 方法7 - App.framework不存在: \(appFrameworkPath)")
+            }
+        }
+        
+        // 方法8: 在main bundle中列出所有路径（调试用）
+        if resourcePath == nil {
+            print("📁 调试 - Bundle主路径: \(Bundle.main.bundlePath)")
+            if let resourcesPath = Bundle.main.resourcePath {
+                print("📁 调试 - Resources路径: \(resourcesPath)")
+                let fileManager = FileManager.default
+                do {
+                    let contents = try fileManager.contentsOfDirectory(atPath: resourcesPath)
+                    print("📁 调试 - Resources内容: \(contents.prefix(10))")
+                    
+                    // 查找flutter_assets目录
+                    let flutterAssetsPath = resourcesPath + "/flutter_assets"
+                    if fileManager.fileExists(atPath: flutterAssetsPath) {
+                        let assetsContents = try fileManager.contentsOfDirectory(atPath: flutterAssetsPath)
+                        print("📁 调试 - flutter_assets内容: \(assetsContents.prefix(10))")
+                        
+                        // 直接检查文件是否存在
+                        let directPath = flutterAssetsPath + "/" + assetPath
+                        if fileManager.fileExists(atPath: directPath) {
+                            resourcePath = directPath
+                            print("📁 方法8 - 直接路径成功: \(directPath)")
+                        }
+                    }
+                } catch {
+                    print("📁 调试 - 无法列出目录内容: \(error)")
+                }
+            }
+            
+            // 额外调试：检查Frameworks目录
+            let frameworksPath = Bundle.main.bundlePath + "/Contents/Frameworks"
+            if FileManager.default.fileExists(atPath: frameworksPath) {
+                do {
+                    let frameworks = try FileManager.default.contentsOfDirectory(atPath: frameworksPath)
+                    print("📁 调试 - Frameworks内容: \(frameworks.prefix(10))")
+                } catch {
+                    print("📁 调试 - 无法列出Frameworks目录内容: \(error)")
+                }
+            }
+        }
+        
+        guard let path = resourcePath else {
+            result(FlutterError(code: "FILE_NOT_FOUND", message: "资源文件不存在: \(assetPath)", details: nil))
+            return
+        }
+        
+        let url = URL(fileURLWithPath: path)
+        
+        // 创建MusicSequence
+        var sequence: MusicSequence?
+        var status = NewMusicSequence(&sequence)
+        if status != noErr {
+            result(FlutterError(code: "LOAD_ERROR", message: "创建MusicSequence失败: \(status)", details: nil))
+            return
+        }
+        
+        // 从文件加载MIDI序列
+        status = MusicSequenceFileLoad(sequence!, url as CFURL, .midiType, MusicSequenceLoadFlags())
+        if status != noErr {
+            DisposeMusicSequence(sequence!)
+            result(FlutterError(code: "LOAD_ERROR", message: "加载MIDI资源失败: \(status)", details: nil))
+            return
+        }
+        
+        // 设置播放器的序列
+        status = MusicPlayerSetSequence(player, sequence)
+        if status != noErr {
+            DisposeMusicSequence(sequence!)
+            result(FlutterError(code: "LOAD_ERROR", message: "设置播放序列失败: \(status)", details: nil))
+            return
+        }
+        
+        // 预加载
+        status = MusicPlayerPreroll(player)
+        if status != noErr {
+            DisposeMusicSequence(sequence!)
+            result(FlutterError(code: "LOAD_ERROR", message: "预加载失败: \(status)", details: nil))
+            return
+        }
+        
+        musicSequence = sequence
+        calculateDuration()
+        updateState("stopped")
+        result(true)
     }
     
     private func play(result: @escaping FlutterResult) {
-        guard let player = audioPlayer else {
+        guard let player = musicPlayer, musicSequence != nil else {
             result(FlutterError(code: "NO_FILE", message: "请先加载文件", details: nil))
             return
         }
         
-        player.play()
-        updateState("playing")
-        startProgressTimer()
-        result(nil)
+        let status = MusicPlayerStart(player)
+        if status == noErr {
+            updateState("playing")
+            startProgressTimer()
+            result(nil)
+        } else {
+            result(FlutterError(code: "PLAY_ERROR", message: "播放失败: \(status)", details: nil))
+        }
     }
     
     private func pause(result: @escaping FlutterResult) {
-        guard let player = audioPlayer else {
+        guard let player = musicPlayer, musicSequence != nil else {
             result(FlutterError(code: "NO_FILE", message: "请先加载文件", details: nil))
             return
         }
         
-        if player.isPlaying {
-            player.pause()
+        let status = MusicPlayerStop(player)
+        if status == noErr {
             updateState("paused")
             stopProgressTimer()
+            result(nil)
+        } else {
+            result(FlutterError(code: "PAUSE_ERROR", message: "暂停失败: \(status)", details: nil))
         }
-        result(nil)
     }
     
     private func stop(result: @escaping FlutterResult) {
-        guard let player = audioPlayer else {
+        guard let player = musicPlayer, musicSequence != nil else {
             result(FlutterError(code: "NO_FILE", message: "请先加载文件", details: nil))
             return
         }
         
-        player.stop()
-        player.currentTime = 0
-        updateState("stopped")
-        stopProgressTimer()
-        result(nil)
+        var status = MusicPlayerStop(player)
+        if status == noErr {
+            status = MusicPlayerSetTime(player, 0)
+            if status == noErr {
+                currentPosition = 0
+                updateState("stopped")
+                stopProgressTimer()
+                result(nil)
+            } else {
+                result(FlutterError(code: "STOP_ERROR", message: "重置播放位置失败: \(status)", details: nil))
+            }
+        } else {
+            result(FlutterError(code: "STOP_ERROR", message: "停止失败: \(status)", details: nil))
+        }
     }
     
     private func seekTo(positionMs: Int, result: @escaping FlutterResult) {
-        guard let player = audioPlayer else {
+        guard let player = musicPlayer, musicSequence != nil else {
             result(FlutterError(code: "NO_FILE", message: "请先加载文件", details: nil))
             return
         }
         
         let timeInSeconds = Double(positionMs) / 1000.0
-        player.currentTime = timeInSeconds
-        currentPosition = timeInSeconds
-        updateProgress()
-        result(nil)
+        let status = MusicPlayerSetTime(player, timeInSeconds)
+        if status == noErr {
+            currentPosition = timeInSeconds
+            updateProgress()
+            result(nil)
+        } else {
+            result(FlutterError(code: "SEEK_ERROR", message: "跳转失败: \(status)", details: nil))
+        }
     }
     
     private func setSpeed(speed: Float, result: @escaping FlutterResult) {
-        guard let player = audioPlayer else {
+        guard let player = musicPlayer, musicSequence != nil else {
             result(FlutterError(code: "NO_FILE", message: "请先加载文件", details: nil))
             return
         }
         
-        if #available(macOS 10.12, *) {
-            player.rate = speed
+        let status = MusicPlayerSetPlayRateScalar(player, Float64(speed))
+        if status == noErr {
+            result(nil)
+        } else {
+            result(FlutterError(code: "SPEED_ERROR", message: "设置速度失败: \(status)", details: nil))
         }
-        result(nil)
     }
     
     private func setVolume(volume: Float, result: @escaping FlutterResult) {
-        guard let player = audioPlayer else {
-            result(FlutterError(code: "NO_FILE", message: "请先加载文件", details: nil))
-            return
-        }
-        
-        player.volume = volume
+        // MusicPlayer不直接支持音量控制，在macOS中音量通常由系统控制
+        // 暂时返回成功，后续可以实现更复杂的音量控制
         result(nil)
     }
     
     private func getCurrentInfo(result: @escaping FlutterResult) {
-        guard let player = audioPlayer else {
+        guard let player = musicPlayer, musicSequence != nil else {
             result(nil)
             return
         }
         
-        currentPosition = player.currentTime
+        var time: MusicTimeStamp = 0
+        let status = MusicPlayerGetTime(player, &time)
+        if status == noErr {
+            currentPosition = time
+        }
+        
         let progress = duration > 0 ? currentPosition / duration : 0.0
         
         let info: [String: Any] = [
@@ -258,14 +487,54 @@ public class PlayMidifilePlugin: NSObject, FlutterPlugin {
     }
     
     private func dispose(result: @escaping FlutterResult) {
-        releaseAudioPlayer()
+        releaseMusicPlayer()
         stopProgressTimer()
         result(nil)
     }
     
-    private func releaseAudioPlayer() {
-        audioPlayer?.stop()
-        audioPlayer = nil
+    private func releaseMusicPlayer() {
+        if let player = musicPlayer {
+            MusicPlayerStop(player)
+            DisposeMusicPlayer(player)
+            musicPlayer = nil
+        }
+        releaseMusicSequence()
+        isInitialized = false
+    }
+    
+    private func releaseMusicSequence() {
+        if let sequence = musicSequence {
+            DisposeMusicSequence(sequence)
+            musicSequence = nil
+        }
+    }
+    
+    private func calculateDuration() {
+        guard let sequence = musicSequence else {
+            duration = 0
+            return
+        }
+        
+        var tracks: UInt32 = 0
+        let status = MusicSequenceGetTrackCount(sequence, &tracks)
+        if status != noErr {
+            duration = 0
+            return
+        }
+        
+        var maxLength: MusicTimeStamp = 0
+        for i in 0..<tracks {
+            var track: MusicTrack?
+            if MusicSequenceGetIndTrack(sequence, i, &track) == noErr, let track = track {
+                var trackLength: MusicTimeStamp = 0
+                var propSize: UInt32 = UInt32(MemoryLayout<MusicTimeStamp>.size)
+                if MusicTrackGetProperty(track, kSequenceTrackProperty_TrackLength, &trackLength, &propSize) == noErr {
+                    maxLength = max(maxLength, trackLength)
+                }
+            }
+        }
+        
+        duration = maxLength
     }
     
     private func updateState(_ newState: String) {
@@ -288,9 +557,14 @@ public class PlayMidifilePlugin: NSObject, FlutterPlugin {
     }
     
     private func updateProgress() {
-        guard let player = audioPlayer, currentState == "playing" else { return }
+        guard let player = musicPlayer, musicSequence != nil, currentState == "playing" else { return }
         
-        currentPosition = player.currentTime
+        var time: MusicTimeStamp = 0
+        let status = MusicPlayerGetTime(player, &time)
+        if status == noErr {
+            currentPosition = time
+        }
+        
         let progress = duration > 0 ? currentPosition / duration : 0.0
         
         let info: [String: Any] = [
@@ -302,19 +576,14 @@ public class PlayMidifilePlugin: NSObject, FlutterPlugin {
         DispatchQueue.main.async {
             self.progressEventSink?(info)
         }
-    }
-}
-
-// MARK: - AVAudioPlayerDelegate
-extension PlayMidifilePlugin: AVAudioPlayerDelegate {
-    public func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        updateState("stopped")
-        stopProgressTimer()
-    }
-    
-    public func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
-        updateState("error")
-        stopProgressTimer()
+        
+        // 检查是否播放完成
+        if currentPosition >= duration && duration > 0 {
+            DispatchQueue.main.async {
+                self.updateState("stopped")
+                self.stopProgressTimer()
+            }
+        }
     }
 }
 

@@ -171,22 +171,30 @@ public class PlayMidifilePlugin: NSObject, FlutterPlugin {
         
         releaseMusicSequence()
         
-        // 首先尝试使用Flutter查找键获取资源路径
-        let key = FlutterDartProject.lookupKey(forAsset: assetPath)
         var resourcePath: String?
         
-        if let path = Bundle.main.path(forResource: key, ofType: nil) {
-            resourcePath = path
-        } else {
-            // 如果Flutter资源查找失败，尝试直接使用文件名
-            // 移除 "assets/" 前缀（如果存在）
+        // 尝试多种方式查找assets文件
+        // 方法1: 使用Flutter的lookupKey
+        let key = FlutterDartProject.lookupKey(forAsset: assetPath)
+        resourcePath = Bundle.main.path(forResource: key, ofType: nil)
+        
+        // 方法2: 尝试直接使用asset路径
+        if resourcePath == nil {
+            resourcePath = Bundle.main.path(forResource: assetPath, ofType: nil)
+        }
+        
+        // 方法3: 移除assets/前缀后尝试
+        if resourcePath == nil {
             let fileName = assetPath.hasPrefix("assets/") ? String(assetPath.dropFirst(7)) : assetPath
-            
-            // 分离文件名和扩展名
+            resourcePath = Bundle.main.path(forResource: fileName, ofType: nil)
+        }
+        
+        // 方法4: 分离文件名和扩展名
+        if resourcePath == nil {
+            let fileName = assetPath.hasPrefix("assets/") ? String(assetPath.dropFirst(7)) : assetPath
             let url = URL(fileURLWithPath: fileName)
             let nameWithoutExtension = url.deletingPathExtension().lastPathComponent
             let fileExtension = url.pathExtension.isEmpty ? nil : url.pathExtension
-            
             resourcePath = Bundle.main.path(forResource: nameWithoutExtension, ofType: fileExtension)
         }
         
