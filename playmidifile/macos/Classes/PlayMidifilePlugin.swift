@@ -1,6 +1,7 @@
 import Cocoa
 import FlutterMacOS
 import AVFoundation
+import AudioToolbox
 import MediaPlayer
 
 public class PlayMidifilePlugin: NSObject, FlutterPlugin {
@@ -10,11 +11,13 @@ public class PlayMidifilePlugin: NSObject, FlutterPlugin {
     private var progressEventSink: FlutterEventSink?
     private var stateEventSink: FlutterEventSink?
     
-    private var audioPlayer: AVAudioPlayer?
+    private var musicPlayer: MusicPlayer?
+    private var musicSequence: MusicSequence?
     private var progressTimer: Timer?
     private var currentState = "stopped"
     private var duration: TimeInterval = 0
     private var currentPosition: TimeInterval = 0
+    private var isInitialized = false
     
     public static func register(with registrar: FlutterPluginRegistrar) {
         let channel = FlutterMethodChannel(name: "playmidifile", binaryMessenger: registrar.messenger)
@@ -88,13 +91,16 @@ public class PlayMidifilePlugin: NSObject, FlutterPlugin {
     }
     
     private func initialize(result: @escaping FlutterResult) {
-        do {
-            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
-            try AVAudioSession.sharedInstance().setActive(true)
-            result(nil)
-        } catch {
-            result(FlutterError(code: "INIT_ERROR", message: "初始化失败: \(error.localizedDescription)", details: nil))
+        // 创建MusicPlayer
+        var player: MusicPlayer?
+        let status = NewMusicPlayer(&player)
+        if status != noErr {
+            result(FlutterError(code: "INIT_ERROR", message: "创建MusicPlayer失败: \(status)", details: nil))
+            return
         }
+        musicPlayer = player
+        isInitialized = true
+        result(nil)
     }
     
     private func loadFile(filePath: String, result: @escaping FlutterResult) {
@@ -123,7 +129,26 @@ public class PlayMidifilePlugin: NSObject, FlutterPlugin {
         do {
             releaseAudioPlayer()
             
-            guard let path = Bundle.main.path(forResource: assetPath, ofType: nil) else {
+            // 首先尝试使用Flutter查找键获取资源路径
+            let key = FlutterDartProject.lookupKey(forAsset: assetPath)
+            var resourcePath: String?
+            
+            if let path = Bundle.main.path(forResource: key, ofType: nil) {
+                resourcePath = path
+            } else {
+                // 如果Flutter资源查找失败，尝试直接使用文件名
+                // 移除 "assets/" 前缀（如果存在）
+                let fileName = assetPath.hasPrefix("assets/") ? String(assetPath.dropFirst(7)) : assetPath
+                
+                // 分离文件名和扩展名
+                let url = URL(fileURLWithPath: fileName)
+                let nameWithoutExtension = url.deletingPathExtension().lastPathComponent
+                let fileExtension = url.pathExtension.isEmpty ? nil : url.pathExtension
+                
+                resourcePath = Bundle.main.path(forResource: nameWithoutExtension, ofType: fileExtension)
+            }
+            
+            guard let path = resourcePath else {
                 result(FlutterError(code: "FILE_NOT_FOUND", message: "资源文件不存在: \(assetPath)", details: nil))
                 return
             }
