@@ -29,14 +29,9 @@ class MidiPlayerDemo extends StatefulWidget {
 class _MidiPlayerDemoState extends State<MidiPlayerDemo> {
   final PlayMidifile _player = PlayMidifile.instance;
 
-  MidiPlayerState _playerState = MidiPlayerState.stopped;
-  MidiPlaybackInfo? _playbackInfo;
   String? _currentFile;
-  double _volume = 1.0;
-  double _speed = 1.0;
-
-  StreamSubscription<MidiPlayerState>? _stateSubscription;
-  StreamSubscription<MidiPlaybackInfo>? _progressSubscription;
+  String _statusMessage = '未初始化';
+  bool _isInitialized = false;
 
   @override
   void initState() {
@@ -46,8 +41,6 @@ class _MidiPlayerDemoState extends State<MidiPlayerDemo> {
 
   @override
   void dispose() {
-    _stateSubscription?.cancel();
-    _progressSubscription?.cancel();
     _player.dispose();
     super.dispose();
   }
@@ -55,119 +48,103 @@ class _MidiPlayerDemoState extends State<MidiPlayerDemo> {
   Future<void> _initializePlayer() async {
     try {
       await _player.initialize();
-
-      // 监听播放状态变化
-      _stateSubscription = _player.onStateChanged.listen((state) {
-        setState(() {
-          _playerState = state;
-        });
+      setState(() {
+        _isInitialized = true;
+        _statusMessage = '初始化成功';
       });
-
-      // 监听播放进度变化
-      _progressSubscription = _player.onProgressChanged.listen((info) {
-        setState(() {
-          _playbackInfo = info;
-        });
-      });
-
-      setState(() {});
     } catch (e) {
-      _showError('初始化失败: $e');
+      setState(() {
+        _statusMessage = '初始化失败: $e';
+      });
     }
   }
 
   Future<void> _loadAssetFile() async {
     try {
-      // 加载assets文件夹中的demo.mid文件
+      setState(() {
+        _statusMessage = '正在加载资源文件...';
+      });
+
       final success = await _player.loadAsset('assets/demo.mid');
 
       if (success) {
         setState(() {
           _currentFile = 'demo.mid (资源文件)';
+          _statusMessage = '资源文件加载成功';
         });
-        _showMessage('资源文件加载成功');
       } else {
-        _showError('资源文件加载失败');
-      }
-    } catch (e) {
-      _showError('加载资源文件失败: $e');
-    }
-  }
-
-  Future<void> _loadFromPath() async {
-    try {
-      // 示例：从特定路径加载MIDI文件
-      // 在实际应用中，您可以使用file_picker或其他方式来选择文件
-      const filePath = '/path/to/your/midi/file.mid';
-      final success = await _player.loadFile(filePath);
-
-      if (success) {
         setState(() {
-          _currentFile = 'file.mid';
+          _statusMessage = '资源文件加载失败';
         });
-        _showMessage('文件加载成功');
-      } else {
-        _showError('文件加载失败');
       }
     } catch (e) {
-      _showError('加载文件失败: $e');
+      setState(() {
+        _statusMessage = '加载资源文件失败: $e';
+      });
     }
   }
 
   Future<void> _play() async {
+    if (_currentFile == null) {
+      _showMessage('请先加载文件');
+      return;
+    }
+
     try {
       await _player.play();
+      setState(() {
+        _statusMessage = '开始播放';
+      });
     } catch (e) {
-      _showError('播放失败: $e');
+      setState(() {
+        _statusMessage = '播放失败: $e';
+      });
     }
   }
 
   Future<void> _pause() async {
     try {
       await _player.pause();
+      setState(() {
+        _statusMessage = '已暂停';
+      });
     } catch (e) {
-      _showError('暂停失败: $e');
+      setState(() {
+        _statusMessage = '暂停失败: $e';
+      });
     }
   }
 
   Future<void> _stop() async {
     try {
       await _player.stop();
+      setState(() {
+        _statusMessage = '已停止';
+      });
     } catch (e) {
-      _showError('停止失败: $e');
+      setState(() {
+        _statusMessage = '停止失败: $e';
+      });
     }
   }
 
-  Future<void> _seekTo(double value) async {
-    if (_playbackInfo != null) {
-      try {
-        final positionMs = (value * _playbackInfo!.durationMs).round();
-        await _player.seekTo(positionMs);
-      } catch (e) {
-        _showError('跳转失败: $e');
+  Future<void> _getCurrentInfo() async {
+    try {
+      final info = await _player.getCurrentInfo();
+      if (info != null) {
+        setState(() {
+          _statusMessage =
+              '当前位置: ${info.currentPositionMs}ms / ${info.durationMs}ms (${(info.progress * 100).toStringAsFixed(1)}%)';
+        });
+      } else {
+        setState(() {
+          _statusMessage = '无法获取播放信息';
+        });
       }
-    }
-  }
-
-  Future<void> _setVolume(double volume) async {
-    try {
-      await _player.setVolume(volume);
-      setState(() {
-        _volume = volume;
-      });
     } catch (e) {
-      _showError('设置音量失败: $e');
-    }
-  }
-
-  Future<void> _setSpeed(double speed) async {
-    try {
-      await _player.setSpeed(speed);
       setState(() {
-        _speed = speed;
+        _statusMessage = '获取播放信息失败: $e';
       });
-    } catch (e) {
-      _showError('设置播放速度失败: $e');
     }
   }
 
@@ -175,19 +152,6 @@ class _MidiPlayerDemoState extends State<MidiPlayerDemo> {
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text(message)));
-  }
-
-  void _showError(String error) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(error), backgroundColor: Colors.red));
-  }
-
-  String _formatDuration(int milliseconds) {
-    final duration = Duration(milliseconds: milliseconds);
-    final minutes = duration.inMinutes;
-    final seconds = duration.inSeconds % 60;
-    return '$minutes:${seconds.toString().padLeft(2, '0')}';
   }
 
   @override
@@ -203,6 +167,33 @@ class _MidiPlayerDemoState extends State<MidiPlayerDemo> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              // 状态显示区域
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        '状态信息',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Text('初始化状态: ${_isInitialized ? "已初始化" : "未初始化"}'),
+                      const SizedBox(height: 8),
+                      Text('当前文件: ${_currentFile ?? "无"}'),
+                      const SizedBox(height: 8),
+                      Text('状态: $_statusMessage'),
+                    ],
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 16),
+
               // 文件选择区域
               Card(
                 child: Padding(
@@ -218,37 +209,10 @@ class _MidiPlayerDemoState extends State<MidiPlayerDemo> {
                         ),
                       ),
                       const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              onPressed: _loadFromPath,
-                              icon: const Icon(Icons.folder_open),
-                              label: const Text('加载文件路径'),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              onPressed: _loadAssetFile,
-                              icon: const Icon(Icons.library_music),
-                              label: const Text('加载示例文件'),
-                            ),
-                          ),
-                        ],
-                      ),
-                      if (_currentFile != null) ...[
-                        const SizedBox(height: 12),
-                        Text('当前文件: $_currentFile'),
-                      ],
-                      const SizedBox(height: 12),
-                      const Text(
-                        '提示：要选择文件，请添加file_picker依赖',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey,
-                          fontStyle: FontStyle.italic,
-                        ),
+                      ElevatedButton.icon(
+                        onPressed: _isInitialized ? _loadAssetFile : null,
+                        icon: const Icon(Icons.library_music),
+                        label: const Text('加载示例文件 (demo.mid)'),
                       ),
                     ],
                   ),
@@ -273,45 +237,6 @@ class _MidiPlayerDemoState extends State<MidiPlayerDemo> {
                       ),
                       const SizedBox(height: 12),
 
-                      // 播放状态
-                      Row(
-                        children: [
-                          const Text('状态: '),
-                          Text(
-                            _getStateText(_playerState),
-                            style: TextStyle(
-                              color: _getStateColor(_playerState),
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-
-                      const SizedBox(height: 12),
-
-                      // 进度条
-                      if (_playbackInfo != null) ...[
-                        Row(
-                          children: [
-                            Text(
-                              _formatDuration(_playbackInfo!.currentPositionMs),
-                            ),
-                            Expanded(
-                              child: Slider(
-                                value: _playbackInfo!.progress,
-                                onChanged: _currentFile != null
-                                    ? _seekTo
-                                    : null,
-                                min: 0.0,
-                                max: 1.0,
-                              ),
-                            ),
-                            Text(_formatDuration(_playbackInfo!.durationMs)),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                      ],
-
                       // 控制按钮
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -331,68 +256,13 @@ class _MidiPlayerDemoState extends State<MidiPlayerDemo> {
                             icon: const Icon(Icons.stop),
                             tooltip: '停止',
                           ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 16),
-
-              // 音量和速度控制
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        '音效控制',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-
-                      // 音量控制
-                      Row(
-                        children: [
-                          const Icon(Icons.volume_down),
-                          Expanded(
-                            child: Slider(
-                              value: _volume,
-                              onChanged: _currentFile != null
-                                  ? _setVolume
-                                  : null,
-                              min: 0.0,
-                              max: 1.0,
-                              divisions: 10,
-                              label: '${(_volume * 100).round()}%',
-                            ),
+                          IconButton.filled(
+                            onPressed: _currentFile != null
+                                ? _getCurrentInfo
+                                : null,
+                            icon: const Icon(Icons.info),
+                            tooltip: '获取信息',
                           ),
-                          const Icon(Icons.volume_up),
-                        ],
-                      ),
-
-                      // 播放速度控制
-                      Row(
-                        children: [
-                          const Text('0.5x'),
-                          Expanded(
-                            child: Slider(
-                              value: _speed,
-                              onChanged: _currentFile != null
-                                  ? _setSpeed
-                                  : null,
-                              min: 0.5,
-                              max: 2.0,
-                              divisions: 15,
-                              label: '${_speed}x',
-                            ),
-                          ),
-                          const Text('2.0x'),
                         ],
                       ),
                     ],
@@ -426,11 +296,9 @@ class _MidiPlayerDemoState extends State<MidiPlayerDemo> {
                         '// 播放控制\n'
                         'await PlayMidifile.instance.play();\n'
                         'await PlayMidifile.instance.pause();\n'
-                        'await PlayMidifile.instance.stop();\n'
-                        'await PlayMidifile.instance.seekTo(positionMs);\n\n'
-                        '// 设置参数\n'
-                        'await PlayMidifile.instance.setVolume(0.8);\n'
-                        'await PlayMidifile.instance.setSpeed(1.5);',
+                        'await PlayMidifile.instance.stop();\n\n'
+                        '// 获取播放信息\n'
+                        'final info = await PlayMidifile.instance.getCurrentInfo();',
                         style: TextStyle(
                           fontFamily: 'monospace',
                           fontSize: 12,
@@ -446,31 +314,5 @@ class _MidiPlayerDemoState extends State<MidiPlayerDemo> {
         ),
       ),
     );
-  }
-
-  String _getStateText(MidiPlayerState state) {
-    switch (state) {
-      case MidiPlayerState.stopped:
-        return '已停止';
-      case MidiPlayerState.playing:
-        return '播放中';
-      case MidiPlayerState.paused:
-        return '已暂停';
-      case MidiPlayerState.error:
-        return '错误';
-    }
-  }
-
-  Color _getStateColor(MidiPlayerState state) {
-    switch (state) {
-      case MidiPlayerState.stopped:
-        return Colors.grey;
-      case MidiPlayerState.playing:
-        return Colors.green;
-      case MidiPlayerState.paused:
-        return Colors.orange;
-      case MidiPlayerState.error:
-        return Colors.red;
-    }
   }
 }

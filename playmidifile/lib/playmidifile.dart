@@ -48,89 +48,21 @@ class MidiPlaybackInfo {
 /// MIDI播放器类
 class PlayMidifile {
   static const MethodChannel _channel = MethodChannel('playmidifile');
-  static const EventChannel _progressChannel = EventChannel(
-    'playmidifile/progress',
-  );
-  static const EventChannel _stateChannel = EventChannel('playmidifile/state');
 
   static PlayMidifile? _instance;
   static PlayMidifile get instance => _instance ??= PlayMidifile._();
 
   PlayMidifile._();
 
-  StreamSubscription<dynamic>? _progressSubscription;
-  StreamSubscription<dynamic>? _stateSubscription;
-
-  /// 播放进度回调
-  final StreamController<MidiPlaybackInfo> _progressController =
-      StreamController.broadcast();
-  Stream<MidiPlaybackInfo> get onProgressChanged => _progressController.stream;
-
-  /// 播放状态回调
-  final StreamController<MidiPlayerState> _stateController =
-      StreamController.broadcast();
-  Stream<MidiPlayerState> get onStateChanged => _stateController.stream;
-
   /// 初始化插件
   Future<void> initialize() async {
     try {
       await _channel.invokeMethod('initialize');
-      _setupListeners();
     } catch (e) {
       if (kDebugMode) {
         print('初始化MIDI播放器失败: $e');
       }
       rethrow;
-    }
-  }
-
-  /// 设置监听器
-  void _setupListeners() {
-    _progressSubscription?.cancel();
-    _stateSubscription?.cancel();
-
-    _progressSubscription = _progressChannel.receiveBroadcastStream().listen(
-      (dynamic data) {
-        if (data is Map<String, dynamic>) {
-          final info = MidiPlaybackInfo.fromMap(data);
-          _progressController.add(info);
-        }
-      },
-      onError: (error) {
-        if (kDebugMode) {
-          print('播放进度监听错误: $error');
-        }
-      },
-    );
-
-    _stateSubscription = _stateChannel.receiveBroadcastStream().listen(
-      (dynamic data) {
-        if (data is String) {
-          final state = _parseState(data);
-          _stateController.add(state);
-        }
-      },
-      onError: (error) {
-        if (kDebugMode) {
-          print('播放状态监听错误: $error');
-        }
-      },
-    );
-  }
-
-  /// 解析播放状态
-  MidiPlayerState _parseState(String stateString) {
-    switch (stateString) {
-      case 'playing':
-        return MidiPlayerState.playing;
-      case 'paused':
-        return MidiPlayerState.paused;
-      case 'stopped':
-        return MidiPlayerState.stopped;
-      case 'error':
-        return MidiPlayerState.error;
-      default:
-        return MidiPlayerState.stopped;
     }
   }
 
@@ -256,19 +188,6 @@ class PlayMidifile {
     }
   }
 
-  /// 获取当前播放状态
-  Future<MidiPlayerState> getCurrentState() async {
-    try {
-      final result = await _channel.invokeMethod('getCurrentState');
-      return _parseState(result ?? 'stopped');
-    } catch (e) {
-      if (kDebugMode) {
-        print('获取播放状态失败: $e');
-      }
-      return MidiPlayerState.error;
-    }
-  }
-
   /// 获取当前播放信息
   Future<MidiPlaybackInfo?> getCurrentInfo() async {
     try {
@@ -292,18 +211,18 @@ class PlayMidifile {
     }
   }
 
-  /// 释放资源
+  /// 释放资源（简化版本）
   Future<void> dispose() async {
     try {
-      await _progressSubscription?.cancel();
-      await _stateSubscription?.cancel();
-      await _channel.invokeMethod('dispose');
-      await _progressController.close();
-      await _stateController.close();
+      // 简化版本，不调用平台方法
     } catch (e) {
       if (kDebugMode) {
         print('释放资源失败: $e');
       }
     }
   }
+
+  // 添加一些 getter 方法用于兼容
+  Stream<MidiPlaybackInfo> get onProgressChanged => Stream.empty();
+  Stream<MidiPlayerState> get onStateChanged => Stream.empty();
 }

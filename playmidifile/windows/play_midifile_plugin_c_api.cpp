@@ -101,22 +101,30 @@ void PlayMidifilePlugin::HandleMethodCall(
           return;
         }
         
-        // Open MIDI file
-        std::wstring cmd = L"open \"" + wide_path + L"\" type sequencer alias midi";
-        MCIERROR error = mciSendString(cmd.c_str(), nullptr, 0, midi_window_);
-        
-        if (error == 0) {
-          // Get duration
-          wchar_t buffer[256];
-          error = mciSendString(L"status midi length", buffer, sizeof(buffer)/sizeof(wchar_t), midi_window_);
-          if (error == 0) {
-            duration_ms_ = _wtoi(buffer);
-          }
-          current_state_ = "stopped";
-          result->Success(flutter::EncodableValue(true));
-        } else {
-          result->Error("LOAD_ERROR", "Failed to load file");
-        }
+                 // Open MIDI file
+         std::wstring cmd = L"open \"" + wide_path + L"\" type sequencer alias midi";
+         MCIERROR error = mciSendString(cmd.c_str(), nullptr, 0, midi_window_);
+         
+         if (error == 0) {
+           // Get duration
+           wchar_t buffer[256];
+           error = mciSendString(L"status midi length", buffer, sizeof(buffer)/sizeof(wchar_t), midi_window_);
+           if (error == 0) {
+             duration_ms_ = _wtoi(buffer);
+           }
+           current_state_ = "stopped";
+           result->Success(flutter::EncodableValue(true));
+         } else {
+           // Get error message
+           wchar_t error_buffer[256];
+           mciGetErrorString(error, error_buffer, sizeof(error_buffer)/sizeof(wchar_t));
+           std::string error_msg = "MCI Error: ";
+           int size_needed = WideCharToMultiByte(CP_UTF8, 0, error_buffer, -1, NULL, 0, NULL, NULL);
+           std::string error_str(size_needed, 0);
+           WideCharToMultiByte(CP_UTF8, 0, error_buffer, -1, &error_str[0], size_needed, NULL, NULL);
+           error_msg += error_str + " Path: " + file_path;
+           result->Error("LOAD_ERROR", error_msg);
+         }
       } else {
         result->Error("INVALID_ARGUMENT", "File path required");
       }
@@ -150,22 +158,30 @@ void PlayMidifilePlugin::HandleMethodCall(
           return;
         }
         
-        // Open MIDI file
-        std::wstring cmd = L"open \"" + wide_path + L"\" type sequencer alias midi";
-        MCIERROR error = mciSendString(cmd.c_str(), nullptr, 0, midi_window_);
-        
-        if (error == 0) {
-          // Get duration
-          wchar_t buffer[256];
-          error = mciSendString(L"status midi length", buffer, sizeof(buffer)/sizeof(wchar_t), midi_window_);
-          if (error == 0) {
-            duration_ms_ = _wtoi(buffer);
-          }
-          current_state_ = "stopped";
-          result->Success(flutter::EncodableValue(true));
-        } else {
-          result->Error("LOAD_ERROR", "Failed to load asset");
-        }
+                 // Open MIDI file
+         std::wstring cmd = L"open \"" + wide_path + L"\" type sequencer alias midi";
+         MCIERROR error = mciSendString(cmd.c_str(), nullptr, 0, midi_window_);
+         
+         if (error == 0) {
+           // Get duration
+           wchar_t buffer[256];
+           error = mciSendString(L"status midi length", buffer, sizeof(buffer)/sizeof(wchar_t), midi_window_);
+           if (error == 0) {
+             duration_ms_ = _wtoi(buffer);
+           }
+           current_state_ = "stopped";
+           result->Success(flutter::EncodableValue(true));
+         } else {
+           // Get error message
+           wchar_t error_buffer[256];
+           mciGetErrorString(error, error_buffer, sizeof(error_buffer)/sizeof(wchar_t));
+           std::string error_msg = "MCI Error: ";
+           int size_needed = WideCharToMultiByte(CP_UTF8, 0, error_buffer, -1, NULL, 0, NULL, NULL);
+           std::string error_str(size_needed, 0);
+           WideCharToMultiByte(CP_UTF8, 0, error_buffer, -1, &error_str[0], size_needed, NULL, NULL);
+           error_msg += error_str + " Path: " + full_path;
+           result->Error("LOAD_ERROR", error_msg);
+         }
       } else {
         result->Error("INVALID_ARGUMENT", "Asset path required");
       }
