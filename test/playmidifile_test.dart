@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:playmidifile/playmidifile.dart';
 import 'package:flutter/services.dart';
+import 'package:playmidifile/playmidifile.dart';
 
 void main() {
   const MethodChannel channel = MethodChannel('playmidifile');
@@ -10,40 +10,40 @@ void main() {
   setUp(() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (MethodCall methodCall) async {
-          switch (methodCall.method) {
-            case 'initialize':
-              return null;
-            case 'loadFile':
-              // 对于测试，总是返回成功
-              return true;
-            case 'loadAsset':
-              return true;
-            case 'play':
-              return null;
-            case 'pause':
-              return null;
-            case 'stop':
-              return null;
-            case 'seekTo':
-              return null;
-            case 'setSpeed':
-              return null;
-            case 'setVolume':
-              return null;
-            case 'getCurrentState':
-              return 'stopped';
-            case 'getCurrentInfo':
-              return {
-                'currentPositionMs': 0,
-                'durationMs': 60000,
-                'progress': 0.0,
-              };
-            case 'dispose':
-              return null;
-            default:
-              return null;
-          }
-        });
+      switch (methodCall.method) {
+        case 'initialize':
+          return null;
+        case 'loadFile':
+          // 对于测试，总是返回成功
+          return true;
+        case 'loadAsset':
+          return true;
+        case 'play':
+          return null;
+        case 'pause':
+          return null;
+        case 'stop':
+          return null;
+        case 'seekTo':
+          return null;
+        case 'setSpeed':
+          return null;
+        case 'setVolume':
+          return null;
+        case 'getCurrentState':
+          return 'stopped';
+        case 'getCurrentInfo':
+          return {
+            'currentPositionMs': 0,
+            'durationMs': 60000,
+            'progress': 0.0,
+          };
+        case 'dispose':
+          return null;
+        default:
+          return null;
+      }
+    });
   });
 
   tearDown(() {
