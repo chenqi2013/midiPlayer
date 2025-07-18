@@ -378,15 +378,13 @@ class _MidiPlayerDemoState extends State<MidiPlayerDemo> {
                                   0.0,
                                   1.0,
                                 ),
-                                onChanged:
-                                    _currentFile != null &&
+                                onChanged: _currentFile != null &&
                                         _playbackInfo != null
                                     ? (value) async {
                                         try {
-                                          final positionMs =
-                                              (value *
-                                                      _playbackInfo!.durationMs)
-                                                  .round();
+                                          final positionMs = (value *
+                                                  _playbackInfo!.durationMs)
+                                              .round();
                                           await _player.seekTo(positionMs);
                                         } catch (e) {
                                           setState(() {
@@ -417,9 +415,8 @@ class _MidiPlayerDemoState extends State<MidiPlayerDemo> {
                         children: [
                           // 播放/暂停切换按钮
                           IconButton.filled(
-                            onPressed: _currentFile != null
-                                ? _togglePlayPause
-                                : null,
+                            onPressed:
+                                _currentFile != null ? _togglePlayPause : null,
                             icon: Icon(
                               _isPlaying ? Icons.pause : Icons.play_arrow,
                             ),
@@ -431,9 +428,8 @@ class _MidiPlayerDemoState extends State<MidiPlayerDemo> {
                             tooltip: '停止',
                           ),
                           IconButton.filled(
-                            onPressed: _currentFile != null
-                                ? _getCurrentInfo
-                                : null,
+                            onPressed:
+                                _currentFile != null ? _getCurrentInfo : null,
                             icon: const Icon(Icons.info),
                             tooltip: '获取信息',
                           ),

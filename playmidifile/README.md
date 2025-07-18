@@ -19,13 +19,14 @@
 
 ✅ **跨平台支持**
 - ✅ Android (使用MediaPlayer)
-- ✅ iOS (使用AVAudioPlayer)
+- ✅ iOS (使用MusicSequence API)
 - ✅ Windows (使用MCI API)
-- ✅ macOS (使用AVAudioPlayer)
+- ✅ macOS (使用MusicSequence API)
 
 ✅ **状态监听**
-- 播放状态变化监听
-- 播放进度实时更新
+- 播放进度实时更新（通过定时器）
+- 播放完成自动检测
+- 播放状态管理
 
 ## 安装
 
@@ -92,41 +93,40 @@ await player.setVolume(0.8);
 await player.setSpeed(1.5);
 ```
 
-### 5. 状态监听
+### 5. 进度监听
+
+由于平台限制，插件使用定时器方式获取播放进度（建议200ms间隔）：
 
 ```dart
-// 监听播放状态变化
-player.onStateChanged.listen((MidiPlayerState state) {
-  switch (state) {
-    case MidiPlayerState.stopped:
-      print('播放器已停止');
-      break;
-    case MidiPlayerState.playing:
-      print('正在播放');
-      break;
-    case MidiPlayerState.paused:
-      print('播放器已暂停');
-      break;
-    case MidiPlayerState.error:
-      print('播放出错');
-      break;
-  }
-});
+import 'dart:async';
 
-// 监听播放进度
-player.onProgressChanged.listen((MidiPlaybackInfo info) {
-  print('当前位置: ${info.currentPositionMs}ms');
-  print('总时长: ${info.durationMs}ms');
-  print('播放进度: ${(info.progress * 100).toStringAsFixed(1)}%');
-});
+Timer? _progressTimer;
+
+// 启动进度更新定时器
+void _startProgressTimer() {
+  _progressTimer = Timer.periodic(const Duration(milliseconds: 200), (timer) async {
+    final info = await player.getCurrentInfo();
+    if (info != null) {
+      // 更新UI显示进度
+      setState(() {
+        _currentPosition = info.currentPositionMs;
+        _duration = info.durationMs;
+        _progress = info.progress;
+      });
+    }
+  });
+}
+
+// 停止进度更新定时器
+void _stopProgressTimer() {
+  _progressTimer?.cancel();
+  _progressTimer = null;
+}
 ```
 
 ### 6. 获取当前信息
 
 ```dart
-// 获取当前播放状态
-MidiPlayerState state = await player.getCurrentState();
-
 // 获取当前播放信息
 MidiPlaybackInfo? info = await player.getCurrentInfo();
 if (info != null) {
@@ -147,6 +147,7 @@ await player.dispose();
 
 ```dart
 import 'package:flutter/material.dart';
+import 'dart:async';
 import 'package:playmidifile/playmidifile.dart';
 
 class MidiPlayerExample extends StatefulWidget {
@@ -156,8 +157,10 @@ class MidiPlayerExample extends StatefulWidget {
 
 class _MidiPlayerExampleState extends State<MidiPlayerExample> {
   final PlayMidifile _player = PlayMidifile.instance;
-  MidiPlayerState _state = MidiPlayerState.stopped;
-  MidiPlaybackInfo? _info;
+  MidiPlaybackInfo? _playbackInfo;
+  Timer? _progressTimer;
+  bool _isPlaying = false;
+  String _statusMessage = '未初始化';
   
   @override
   void initState() {
@@ -166,55 +169,130 @@ class _MidiPlayerExampleState extends State<MidiPlayerExample> {
   }
   
   Future<void> _initPlayer() async {
-    await _player.initialize();
-    
-    // 监听状态变化
-    _player.onStateChanged.listen((state) {
-      setState(() => _state = state);
+    try {
+      await _player.initialize();
+      setState(() {
+        _statusMessage = '初始化成功';
+      });
+      
+      // 加载示例文件
+      final success = await _player.loadAsset('assets/demo.mid');
+      if (success) {
+        final info = await _player.getCurrentInfo();
+        setState(() {
+          _playbackInfo = info;
+          _statusMessage = '文件加载成功';
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _statusMessage = '初始化失败: $e';
+      });
+    }
+  }
+  
+  // 启动进度更新定时器（200ms间隔）
+  void _startProgressTimer() {
+    _progressTimer = Timer.periodic(const Duration(milliseconds: 200), (timer) async {
+      if (_isPlaying) {
+        final info = await _player.getCurrentInfo();
+        if (mounted && info != null) {
+          setState(() {
+            _playbackInfo = info;
+          });
+          
+          // 检测播放完成（进度≥0.99）
+          if (info.progress >= 0.99) {
+            _handlePlaybackComplete();
+          }
+        }
+      }
     });
-    
-    // 监听进度变化
-    _player.onProgressChanged.listen((info) {
-      setState(() => _info = info);
+  }
+  
+  void _stopProgressTimer() {
+    _progressTimer?.cancel();
+    _progressTimer = null;
+  }
+  
+  void _handlePlaybackComplete() {
+    _stopProgressTimer();
+    setState(() {
+      _isPlaying = false;
+      _statusMessage = '播放完成';
     });
-    
-    // 加载示例文件
-    await _player.loadAsset('assets/demo.mid');
+  }
+  
+  Future<void> _togglePlayPause() async {
+    if (_isPlaying) {
+      await _player.pause();
+      _stopProgressTimer();
+      setState(() {
+        _isPlaying = false;
+        _statusMessage = '已暂停';
+      });
+    } else {
+      await _player.play();
+      _startProgressTimer();
+      setState(() {
+        _isPlaying = true;
+        _statusMessage = '播放中';
+      });
+    }
+  }
+  
+  Future<void> _stop() async {
+    await _player.stop();
+    _stopProgressTimer();
+    setState(() {
+      _isPlaying = false;
+      _statusMessage = '已停止';
+      if (_playbackInfo != null) {
+        _playbackInfo = MidiPlaybackInfo(
+          currentPositionMs: 0,
+          durationMs: _playbackInfo!.durationMs,
+          progress: 0.0,
+        );
+      }
+    });
   }
   
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text('MIDI播放器')),
-      body: Center(
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Text('状态: ${_state.toString()}'),
-            if (_info != null) ...[
-              Text('进度: ${_info!.currentPositionMs}/${_info!.durationMs}ms'),
-              Slider(
-                value: _info!.progress,
-                onChanged: (value) async {
-                  final pos = (value * _info!.durationMs).round();
-                  await _player.seekTo(pos);
-                },
+            Text('状态: $_statusMessage'),
+            if (_playbackInfo != null) ...[
+              Row(
+                children: [
+                  Text(_formatDuration(_playbackInfo!.currentPositionMs)),
+                  Expanded(
+                    child: Slider(
+                      value: _playbackInfo!.progress.clamp(0.0, 1.0),
+                      onChanged: (value) async {
+                        final positionMs = (value * _playbackInfo!.durationMs).round();
+                        await _player.seekTo(positionMs);
+                      },
+                    ),
+                  ),
+                  Text(_formatDuration(_playbackInfo!.durationMs)),
+                ],
               ),
             ],
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 IconButton(
-                  icon: Icon(Icons.play_arrow),
-                  onPressed: () => _player.play(),
-                ),
-                IconButton(
-                  icon: Icon(Icons.pause),
-                  onPressed: () => _player.pause(),
+                  icon: Icon(_isPlaying ? Icons.pause : Icons.play_arrow),
+                  onPressed: _togglePlayPause,
                 ),
                 IconButton(
                   icon: Icon(Icons.stop),
-                  onPressed: () => _player.stop(),
+                  onPressed: _stop,
                 ),
               ],
             ),
@@ -224,9 +302,18 @@ class _MidiPlayerExampleState extends State<MidiPlayerExample> {
     );
   }
   
+  // 格式化时间显示（分:秒）
+  String _formatDuration(int milliseconds) {
+    final duration = Duration(milliseconds: milliseconds);
+    final minutes = duration.inMinutes;
+    final seconds = duration.inSeconds % 60;
+    return '$minutes:${seconds.toString().padLeft(2, '0')}';
+  }
+  
   @override
   void dispose() {
-    _player.dispose();
+    _stopProgressTimer(); // 停止进度定时器
+    _player.dispose(); // 释放播放器资源
     super.dispose();
   }
 }
@@ -246,17 +333,18 @@ class _MidiPlayerExampleState extends State<MidiPlayerExample> {
 - `play()` - 开始播放
 - `pause()` - 暂停播放
 - `stop()` - 停止播放
-- `seekTo(int positionMs)` - 跳转到指定位置
+- `seekTo(int positionMs)` - 跳转到指定位置（毫秒）
 - `setVolume(double volume)` - 设置音量 (0.0-1.0)
 - `setSpeed(double speed)` - 设置播放速度 (0.5-2.0)
-- `getCurrentState()` - 获取当前播放状态
 - `getCurrentInfo()` - 获取当前播放信息
 - `dispose()` - 释放资源
 
 #### 属性
 
-- `onStateChanged` - 播放状态变化流
-- `onProgressChanged` - 播放进度变化流
+- `onStateChanged` - 播放状态变化流（当前返回空流）
+- `onProgressChanged` - 播放进度变化流（当前返回空流）
+
+**注意**：由于平台限制，进度监听建议使用定时器方式，每200ms调用`getCurrentInfo()`获取最新进度。播放完成可通过检测进度值≥0.99来判断。
 
 ### MidiPlayerState
 
@@ -283,8 +371,8 @@ class _MidiPlayerExampleState extends State<MidiPlayerExample> {
 - 支持播放速度调节(API 23+)
 
 ### iOS
-- 使用AVAudioPlayer
-- 支持iOS标准音频格式
+- 使用MusicSequence API
+- 支持iOS标准MIDI格式
 - 完整的播放控制支持
 
 ### Windows
@@ -293,7 +381,7 @@ class _MidiPlayerExampleState extends State<MidiPlayerExample> {
 - 音量控制通过MCI实现
 
 ### macOS
-- 使用AVAudioPlayer (与iOS相同)
+- 使用MusicSequence API (与iOS相同)
 - 完整的macOS音频系统集成
 - 支持所有播放控制功能
 
@@ -302,12 +390,16 @@ class _MidiPlayerExampleState extends State<MidiPlayerExample> {
 - `.mid` - 标准MIDI文件
 - `.midi` - MIDI文件
 
+**注意**：支持标准MIDI 0和MIDI 1格式，建议使用标准MIDI文件以确保最佳兼容性。
+
 ## 注意事项
 
 1. **文件权限**: 确保应用有访问文件的权限
 2. **Assets配置**: 使用assets文件时，确保在`pubspec.yaml`中正确配置
 3. **播放速度**: Windows平台可能不支持播放速度调节
 4. **内存管理**: 及时调用`dispose()`释放资源
+5. **进度监听**: 建议使用定时器方式获取播放进度，频率建议200ms
+6. **播放完成检测**: 通过检测进度值≥0.99来判断播放完成
 
 ## 故障排除
 
@@ -315,6 +407,7 @@ class _MidiPlayerExampleState extends State<MidiPlayerExample> {
 1. 检查文件格式是否为标准MIDI格式
 2. 确认文件路径是否正确
 3. 检查文件访问权限
+4. 确保文件未损坏且可正常打开
 
 ### Android权限问题
 在`android/app/src/main/AndroidManifest.xml`中添加必要权限：
@@ -325,6 +418,14 @@ class _MidiPlayerExampleState extends State<MidiPlayerExample> {
 
 ### iOS权限问题
 在`ios/Runner/Info.plist`中添加必要权限：
+
+```xml
+<key>NSMicrophoneUsageDescription</key>
+<string>This app needs microphone access to play audio files.</string>
+```
+
+### macOS权限问题
+在`macos/Runner/Info.plist`中添加必要权限：
 
 ```xml
 <key>NSMicrophoneUsageDescription</key>
@@ -344,6 +445,8 @@ class _MidiPlayerExampleState extends State<MidiPlayerExample> {
 ### 0.0.1
 - 初始版本
 - 支持Android、iOS、Windows、macOS平台
-- 基本的播放控制功能
+- 基本的播放控制功能（播放、暂停、停止、跳转）
 - 音量和速度调节
 - 播放状态和进度监听
+- 修复了各平台的播放完成检测和时长计算问题
+- 支持从文件路径和assets加载MIDI文件

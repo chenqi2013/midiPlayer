@@ -1,10 +1,10 @@
 name: playmidifile
 description: "一个跨平台的MIDI文件播放器插件，支持Android、iOS、Windows、macOS"
 version: 0.0.1
-homepage: https://github.com/example/playmidifile
+homepage: https://github.com/chenqi2013/playmidifile
 
 environment:
-  sdk: ^3.8.1
+  sdk: ^3.6.0
   flutter: ">=3.0.0"
 
 dependencies:
