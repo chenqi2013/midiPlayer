@@ -1,7 +1,7 @@
-name: playmidifile
+name: midiPlayer
 description: "一个跨平台的MIDI文件播放器插件，支持Android、iOS、Windows、macOS"
 version: 0.0.1
-homepage: https://github.com/chenqi2013/playmidifile
+homepage: https://github.com/chenqi2013/midiPlayer
 
 environment:
   sdk: ^3.6.0
